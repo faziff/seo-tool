@@ -326,7 +326,7 @@ export default function App() {
 
             {currentTab === 'fixes' && <FixesPage report={report} onRunAudit={focusScannerInput} />}
 
-            {currentTab === 'keyword-research' && <KeywordResearchPage />
+            {currentTab === 'keyword-research' && <KeywordResearchPage />}
 
             {currentTab === 'market-research' && <MarketResearchPage />}
 
