@@ -1,1 +1,1 @@
-import "tsx/esm"; await import("./server.ts");
+import("tsx/esm/api").then(({ register }) => { register(); return import("./server.ts"); });
