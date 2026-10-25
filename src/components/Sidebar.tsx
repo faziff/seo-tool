@@ -46,16 +46,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'site-audit', label: 'Site Audit', icon: Globe },
     { id: 'seo-analysis', label: 'SEO Analysis', icon: Search },
-    { id: 'fixes', label: 'AI Fix Studio', icon: Wrench },
     { id: 'keyword-research', label: 'Keyword Research', icon: Telescope },
     { id: 'market-research', label: 'Market Research', icon: Compass },
     { id: 'performance', label: 'Performance', icon: Zap },
     { id: 'accessibility', label: 'Accessibility', icon: Eye },
     { id: 'technical', label: 'Technical Issues', icon: Terminal },
+    { id: 'fix-center', label: 'Fix Center', icon: Wrench },
     { id: 'content', label: 'Content Opportunities', icon: FileText },
     { id: 'ai-assistant', label: 'NOVA AI Assistant', icon: Sparkles },
     { id: 'reports', label: 'Reports', icon: BarChart3 },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'settings', label: 'Workspace Settings', icon: Settings },
   ];
 
   const content = (

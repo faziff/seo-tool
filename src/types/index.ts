@@ -111,3 +111,24 @@ export interface RecentScanItem {
   created_at: string;
   completed_at?: string;
 }
+
+
+export type FixStatus = 'draft' | 'approved' | 'rejected';
+
+export interface FixDraft {
+  id: string;
+  scan_id: string;
+  issue_id: string;
+  issue_title: string;
+  category: IssueCategory;
+  severity: Severity;
+  affected_url: string;
+  evidence: string;
+  recommendation: string;
+  fix_explanation: string;
+  code_snippet: string;
+  status: FixStatus;
+  generated_by: 'gemini' | 'fallback';
+  created_at: string;
+  updated_at: string;
+}

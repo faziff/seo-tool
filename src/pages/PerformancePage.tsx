@@ -142,6 +142,17 @@ export const PerformancePage: React.FC<PerformancePageProps> = ({ report }) => {
               </p>
             </div>
           )}
+
+          {pageSpeedResult.status === 'error' && (
+            <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div><p className="font-semibold">PageSpeed test could not be completed</p><p className="text-rose-700 mt-1">{pageSpeedResult.message || pageSpeedResult.detail || 'Check the API key and try again.'}</p></div>
+            </div>
+          )}
+
+          {pageSpeedResult.status === 'success' && pageSpeedResult.data && (
+            <p className="text-[11px] text-slate-400">Measured by Google PageSpeed Insights · {strategy} · {pageSpeedResult.fetched_at ? new Date(pageSpeedResult.fetched_at).toLocaleString() : 'Just now'}</p>
+          )}
         </div>
       )}
 
@@ -166,16 +177,16 @@ export const PerformancePage: React.FC<PerformancePageProps> = ({ report }) => {
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-2">
           <div className="flex items-center gap-2 text-slate-700">
             <Layers className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-xs font-bold text-slate-900">Payload Weight & Size</h3>
+            <h3 className="text-xs font-bold text-slate-900">Performance audit score</h3>
           </div>
           <div className="flex items-baseline gap-2 font-mono">
             <span className="text-3xl font-extrabold text-slate-900">
               {report.performance_score}/100
             </span>
-            <span className="text-xs text-emerald-600 font-semibold">Good</span>
+            <span className="text-xs text-slate-500 font-semibold">CROX audit</span>
           </div>
           <p className="text-[11px] text-slate-500">
-            Evaluates response size, CSS/JS bundling, and asset minification.
+            A crawl-based score from findings recorded by CROX; use PageSpeed Insights above for a Lighthouse lab score.
           </p>
         </div>
 

@@ -78,12 +78,33 @@ export interface IssueEntity {
   created_at: string;
 }
 
+export type FixStatus = 'draft' | 'approved' | 'rejected';
+
+export interface FixEntity {
+  id: string;
+  scan_id: string;
+  issue_id: string;
+  issue_title: string;
+  category: IssueEntity['category'];
+  severity: IssueEntity['severity'];
+  affected_url: string;
+  evidence: string;
+  recommendation: string;
+  fix_explanation: string;
+  code_snippet: string;
+  status: FixStatus;
+  generated_by: 'gemini' | 'fallback';
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DatabaseSchema {
   users: UserEntity[];
   websites: WebsiteEntity[];
   scans: ScanEntity[];
   scanned_pages: ScannedPageEntity[];
   issues: IssueEntity[];
+  fixes: FixEntity[];
 }
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
@@ -95,7 +116,8 @@ class DatabaseStore {
     websites: [],
     scans: [],
     scanned_pages: [],
-    issues: []
+    issues: [],
+    fixes: []
   };
 
   private isLoaded = false;
@@ -121,14 +143,15 @@ class DatabaseStore {
           websites: Array.isArray(parsed.websites) ? parsed.websites : [],
           scans: Array.isArray(parsed.scans) ? parsed.scans : [],
           scanned_pages: Array.isArray(parsed.scanned_pages) ? parsed.scanned_pages : [],
-          issues: Array.isArray(parsed.issues) ? parsed.issues : []
+          issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+          fixes: Array.isArray(parsed.fixes) ? parsed.fixes : []
         };
       }
       this.isLoaded = true;
       this.persistSync();
     } catch (err) {
       console.error('[CROX DB] Data file is unreadable; starting with an empty store:', err);
-      this.data = { users: [], websites: [], scans: [], scanned_pages: [], issues: [] };
+      this.data = { users: [], websites: [], scans: [], scanned_pages: [], issues: [], fixes: [] };
       this.isLoaded = true;
       this.persistSync();
     }
@@ -246,6 +269,7 @@ class DatabaseStore {
     this.data.scans.splice(idx, 1);
     this.data.scanned_pages = this.data.scanned_pages.filter(p => p.scan_id !== id);
     this.data.issues = this.data.issues.filter(i => i.scan_id !== id);
+    this.data.fixes = this.data.fixes.filter(f => f.scan_id !== id);
     this.save();
     return true;
   }
@@ -280,6 +304,32 @@ class DatabaseStore {
     this.save();
     return this.data.issues[idx];
   }
+
+  // --- AI-assisted fix drafts ---
+  public getFixesForScan(scanId: string): FixEntity[] {
+    return this.data.fixes
+      .filter(fix => fix.scan_id === scanId)
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  }
+
+  public getFix(id: string): FixEntity | undefined {
+    return this.data.fixes.find(fix => fix.id === id);
+  }
+
+  public createFix(fix: FixEntity): FixEntity {
+    this.data.fixes.unshift(fix);
+    this.save();
+    return fix;
+  }
+
+  public updateFix(id: string, updates: Partial<Pick<FixEntity, 'status' | 'code_snippet' | 'fix_explanation'>>): FixEntity | undefined {
+    const idx = this.data.fixes.findIndex(fix => fix.id === id);
+    if (idx === -1) return undefined;
+    this.data.fixes[idx] = { ...this.data.fixes[idx], ...updates, updated_at: new Date().toISOString() };
+    this.saveImmediately();
+    return this.data.fixes[idx];
+  }
 }
+
 
 export const db = new DatabaseStore();

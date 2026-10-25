@@ -23,7 +23,7 @@ class AIService:
         explanation: str
     ) -> Dict[str, Any]:
         """
-        Generates an actionable fix snippet and instructions using Gemini API (gemini-2.5-flash)
+        Generates an actionable fix snippet and instructions using Gemini API (gemini-3.8-flash)
         when configured, or returns detailed deterministic technical remediation instructions.
         """
         if not cls.is_configured():
@@ -48,7 +48,7 @@ Respond with:
 3. Verification Command or Test
 """
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={settings.GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}]
             }
@@ -106,7 +106,7 @@ Distinguish observed facts from assumptions.
 {context_str}
 """
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={settings.GEMINI_API_KEY}"
             payload = {
                 "systemInstruction": {"parts": [{"text": system_instruction}]},
                 "contents": [{"parts": [{"text": user_message}]}]

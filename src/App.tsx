@@ -10,7 +10,7 @@ import { RecentActivity } from './components/RecentActivity';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { CompareScansModal } from './components/CompareScansModal';
-import { BrandMark } from './components/BrandMark';
+import { FixCenterPage } from './pages/FixCenterPage';
 import { NovaOrb } from './components/NovaOrb';
 
 import { SiteAuditPage } from './pages/SiteAuditPage';
@@ -22,21 +22,18 @@ import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { KeywordResearchPage } from './pages/KeywordResearchPage';
 import { MarketResearchPage } from './pages/MarketResearchPage';
-import { FixesPage } from './pages/FixesPage';
 
 import {
   startScan,
   getScanStatus,
   getScanReport,
   listRecentScans,
-  logoutUser
+  removeStoredToken,
 } from './services/api';
-import { ScanReport, ScanProgress, RecentScanItem, Issue, User } from './types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue } from './types';
 import { Globe, ArrowRight, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
-  const [currentUser] = useState<User>({ id: 0, name: 'CROX Workspace', email: 'Local workspace', created_at: new Date().toISOString(), settings: {} });
-
   const [currentTab, setCurrentTab] = useState<string>('overview');
   const [report, setReport] = useState<ScanReport | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -53,17 +50,59 @@ export default function App() {
   // Reference for polling cleanup
   const pollIntervalRef = useRef<any>(null);
 
-  // Login is intentionally disabled for this build. The API supports anonymous scans.
+  // Dashboard-only workspace: load shared local scan history without an account gate.
   useEffect(() => {
-    listRecentScans().then((scans) => {
-      setRecentScans(scans);
-      if (scans.length > 0) getScanReport(scans[0].id).then(setReport).catch(() => {});
-    }).catch(() => {});
+    // Clear an old token from the previous login-enabled build so this workspace
+    // always boots in the requested dashboard-only mode.
+    removeStoredToken();
+    loadUserScans();
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
 
+  useEffect(() => {
+    const handleWorkspaceSearch = (event: Event) => {
+      const query = String((event as CustomEvent<{ query?: string }>).detail?.query || '').trim().toLowerCase();
+      if (!query) return;
+      const matchingScan = recentScans.find((scan) => `${scan.domain} ${scan.target_url}`.toLowerCase().includes(query));
+      if (matchingScan) {
+        void handleSelectScan(matchingScan.id);
+        return;
+      }
+      const tools: Array<{ terms: string[]; tab: string }> = [
+        { terms: ['fix', 'fix center', 'remediation', 'autofix'], tab: 'fix-center' },
+        { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
+        { terms: ['market', 'competitor'], tab: 'market-research' },
+        { terms: ['performance', 'speed', 'core web vitals'], tab: 'performance' },
+        { terms: ['accessibility', 'wcag'], tab: 'accessibility' },
+        { terms: ['technical', 'broken link'], tab: 'technical' },
+        { terms: ['report', 'export'], tab: 'reports' },
+        { terms: ['setting', 'integration', 'api key'], tab: 'settings' },
+        { terms: ['seo', 'metadata', 'title tag'], tab: 'seo-analysis' },
+        { terms: ['site audit', 'crawl', 'pages'], tab: 'site-audit' }
+      ];
+      const match = tools.find((tool) => tool.terms.some((term) => term.includes(query) || query.includes(term)));
+      if (match) setCurrentTab(match.tab);
+      else setScanError(`No scan or tool matched “${query}”. Try a domain name or a tool such as Fix Center, Keywords, Reports, or Settings.`);
+    };
+    window.addEventListener('crox:search', handleWorkspaceSearch);
+    return () => window.removeEventListener('crox:search', handleWorkspaceSearch);
+  }, [recentScans]);
+
+  const loadUserScans = async () => {
+    try {
+      const scans = await listRecentScans();
+      setRecentScans(scans);
+      if (scans.length > 0 && !report) {
+        // Load the most recent scan report for this workspace
+        const latest = await getScanReport(scans[0].id);
+        setReport(latest);
+      }
+    } catch {
+      // Ignore if no scans
+    }
+  };
 
   const focusScannerInput = () => {
     setCurrentTab('overview');
@@ -164,15 +203,6 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutUser();
-    setIsAIOpen(false);
-    setIsCompareOpen(false);
-    setSelectedIssue(null);
-    setReport(null);
-    setRecentScans([]);
-    setCurrentTab('overview');
-  };
 
   // Render subpage empty state when no scan exists
   const renderEmptySubpage = (title: string, desc: string) => (
@@ -211,11 +241,8 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top Bar Header */}
           <Header
-            user={currentUser}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             onOpenAI={() => setIsAIOpen(true)}
-            onOpenAuth={() => setCurrentTab('settings')}
-            onLogout={handleLogout}
             onOpenSettings={() => setCurrentTab('settings')}
           />
 
@@ -324,11 +351,13 @@ export default function App() {
               )
             )}
 
-            {currentTab === 'fixes' && <FixesPage report={report} onRunAudit={focusScannerInput} />}
-
             {currentTab === 'keyword-research' && <KeywordResearchPage />}
 
             {currentTab === 'market-research' && <MarketResearchPage />}
+
+            {currentTab === 'fix-center' && (
+              <FixCenterPage report={report} onFocusScanner={focusScannerInput} />
+            )}
 
             {currentTab === 'performance' && (
               report ? (
@@ -408,13 +437,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'settings' && (
-              <SettingsPage
-                user={currentUser}
-                onLogout={handleLogout}
-                onOpenAuth={() => setCurrentTab('overview')}
-              />
-            )}
+            {currentTab === 'settings' && <SettingsPage />}
           </main>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { ScanReport, ScanProgress, RecentScanItem, Issue, User } from '../types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue, User, FixDraft } from '../types';
 
 const TOKEN_KEY = 'crox_auth_token';
 
@@ -25,14 +25,9 @@ export function removeStoredToken() {
 }
 
 function getAuthHeaders(): HeadersInit {
-  const token = getStoredToken();
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json'
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
+  // Dashboard-only build: API calls intentionally run in guest/workspace mode.
+  // Ignore stale browser tokens so they cannot unexpectedly scope scan history.
+  return { 'Content-Type': 'application/json' };
 }
 
 // ==========================================
@@ -223,6 +218,41 @@ export async function generateAIFix(issue: Issue): Promise<any> {
   return res.json();
 }
 
+function readApiError(payload: any, fallback: string): string {
+  return typeof payload?.detail === 'string' ? payload.detail
+    : typeof payload?.message === 'string' ? payload.message
+    : fallback;
+}
+
+export async function getFixDrafts(scanId: string): Promise<FixDraft[]> {
+  const res = await fetch(`/api/fixes?scan_id=${encodeURIComponent(scanId)}`, { headers: getAuthHeaders() });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(readApiError(payload, 'Could not load fix drafts.'));
+  return Array.isArray(payload) ? payload as FixDraft[] : [];
+}
+
+export async function generateFixDrafts(scanId: string, maxItems = 15): Promise<{ fixes: FixDraft[]; generated_count: number; remaining_count: number; provider_mode: string; message: string }> {
+  const res = await fetch('/api/fixes/generate', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ scan_id: scanId, max_items: maxItems })
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(readApiError(payload, 'Could not generate fix drafts.'));
+  return payload;
+}
+
+export async function updateFixDraft(id: string, updates: Partial<Pick<FixDraft, 'status' | 'code_snippet' | 'fix_explanation'>>): Promise<FixDraft> {
+  const res = await fetch(`/api/fixes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(updates)
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(readApiError(payload, 'Could not save this fix draft.'));
+  return payload as FixDraft;
+}
+
 export async function askCROXAI(message: string, scanId?: string): Promise<{ reply: string; suggestions?: string[] }> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -239,7 +269,11 @@ export async function fetchPageSpeed(url: string, strategy: 'mobile' | 'desktop'
   const res = await fetch(`/api/pagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}`, {
     headers: getAuthHeaders()
   });
-  return res.json();
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(readApiError(payload, 'Could not complete the PageSpeed Insights request.'));
+  }
+  return payload;
 }
 
 export async function getIntegrationsStatus(): Promise<any> {

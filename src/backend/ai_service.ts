@@ -262,58 +262,102 @@ Add this script directly into the \`<head>\` of your homepage:
     affected_url: string;
     evidence: string;
     explanation: string;
-  }): Promise<{ fix_explanation: string; code_snippet: string }> {
+    recommendation?: string;
+  }): Promise<{ fix_explanation: string; code_snippet: string; provider: 'gemini' | 'fallback' }> {
     const ai = this.getClient();
 
     if (ai) {
       try {
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `You are an SEO developer. Generate an exact code snippet and explanation to resolve this SEO audit issue:
-Title: ${issue.title}
+          contents: [{
+            role: 'user',
+            parts: [{ text: `You are NOVA, a careful senior technical SEO engineer inside CROX. Draft a safe, specific remediation for one audited website issue.
+
+Issue: ${issue.title}
 Category: ${issue.category}
 Affected URL: ${issue.affected_url}
-Evidence: ${issue.evidence}
-Explanation: ${issue.explanation}
+Observed evidence: ${issue.evidence}
+Audit explanation: ${issue.explanation}
+Existing recommendation: ${issue.recommendation || 'Not provided'}
 
-Provide a JSON output with keys: "fix_explanation" (string) and "code_snippet" (string).`
-                }
-              ]
-            }
-          ]
+Return ONLY valid JSON with two string fields: "fix_explanation" and "code_snippet".
+Requirements:
+- Give a practical fix that directly matches the issue; do not invent the site's business, page subject, CMS, or content.
+- For metadata, provide a clearly marked template/example rather than pretending a placeholder is final copy.
+- Prefer HTML snippets for on-page metadata, and include implementation guidance when the fix requires server/configuration changes.
+- Never claim you changed the live website. Never include credentials, API keys, or destructive commands.
+- Keep the explanation concise but actionable. If the evidence is insufficient, state what the site owner must confirm. Return JSON only.` }]
+          }]
         });
 
-        const text = response.text || '';
-        const match = text.match(/\{[\s\S]*\}/);
+        const body = response.text || '';
+        const match = body.match(/\{[\s\S]*\}/);
         if (match) {
           const parsed = JSON.parse(match[0]);
-          return {
-            fix_explanation: parsed.fix_explanation || 'Apply the recommended code snippet into your template.',
-            code_snippet: parsed.code_snippet || ''
-          };
+          const fixExplanation = typeof parsed.fix_explanation === 'string' ? parsed.fix_explanation.trim() : '';
+          const codeSnippet = typeof parsed.code_snippet === 'string' ? parsed.code_snippet.trim() : '';
+          if (fixExplanation && codeSnippet) {
+            return { fix_explanation: fixExplanation.slice(0, 6000), code_snippet: codeSnippet.slice(0, 12000), provider: 'gemini' };
+          }
         }
-      } catch {}
+      } catch (err: any) {
+        console.warn('[CROX AI] Fix generation fell back to local guidance:', err?.message || 'unknown error');
+      }
     }
 
-    // Deterministic fallback
-    return {
-      fix_explanation: `To fix "${issue.title}", update the HTML template for ${issue.affected_url} to satisfy standard search crawler specifications.`,
-      code_snippet: issue.title.includes('Title')
-        ? '<title>Descriptive Topic Title - Brand Name</title>'
-        : issue.title.includes('Description')
-        ? '<meta name="description" content="Engaging summary of page contents between 120 and 160 characters.">'
-        : issue.title.includes('H1')
-        ? '<h1>Primary Subject of This Page</h1>'
-        : issue.title.includes('Canonical')
-        ? `<link rel="canonical" href="${issue.affected_url}">`
-        : issue.title.includes('Viewport')
-        ? '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-        : '<meta charset="UTF-8">'
-    };
+    // A local, predictable fallback is available when Gemini is not configured or unavailable.
+    const title = String(issue.title || '').toLowerCase();
+    const rule = `${title} ${issue.category || ''}`.toLowerCase();
+    const safeUrl = String(issue.affected_url || 'https://example.com/page')
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let codeSnippet = '';
+    let fixExplanation = `Review the evidence for “${issue.title}”, then implement the recommendation in the template or CMS that owns ${issue.affected_url || 'the affected page'}. Re-run the audit to verify the result. This is a draft; it has not changed the live site.`;
+
+    if (/title/.test(rule)) {
+      codeSnippet = '<title>Primary Page Topic | Brand Name</title>';
+      fixExplanation = 'Add one unique, descriptive title element inside the page <head>. Replace the example topic and brand with accurate page-specific wording; aim for a concise title that reads naturally in search results.';
+    } else if (/meta.?description|description/.test(rule)) {
+      codeSnippet = '<meta name="description" content="Summarize this page’s main topic and value in one specific, helpful sentence.">';
+      fixExplanation = 'Add a unique meta description to the page head. Write genuine page-specific copy (often around 120–160 characters), avoid keyword stuffing, and do not reuse the same description across pages.';
+    } else if (/h1|heading/.test(rule)) {
+      codeSnippet = '<h1>Clear, descriptive primary heading for this page</h1>';
+      fixExplanation = 'Add a visible, relevant H1 that describes the main purpose of the page. Adapt the wording to the real page content and preserve the existing visual design with CSS if needed.';
+    } else if (/alt|image/.test(rule)) {
+      codeSnippet = '<img src="/path/to/image.webp" alt="Accurate description of the image">';
+      fixExplanation = 'For meaningful images, add concise alt text that communicates the image’s purpose or information. Use alt="" for purely decorative images and replace the example source and text with the real asset and context.';
+    } else if (/canonical/.test(rule)) {
+      codeSnippet = `<link rel="canonical" href="${safeUrl}">`;
+      fixExplanation = 'Add a canonical link in the page head only after confirming the preferred indexable URL. Keep the canonical absolute, stable, and consistent with redirects and internal links.';
+    } else if (/viewport|mobile/.test(rule)) {
+      codeSnippet = '<meta name="viewport" content="width=device-width, initial-scale=1">';
+      fixExplanation = 'Add the standard viewport declaration to the document head and verify the page at common mobile widths. Do not use a restrictive maximum-scale value that prevents zooming.';
+    } else if (/lang|language/.test(rule)) {
+      codeSnippet = '<html lang="en">';
+      fixExplanation = 'Declare the page’s actual primary language on the root HTML element. Replace “en” with the correct BCP 47 language tag for the page.';
+    } else if (/structured|schema|json.?ld/.test(rule)) {
+      codeSnippet = '<script type="application/ld+json">\n{\n  "@context": "https://schema.org",\n  "@type": "WebPage",\n  "name": "Accurate page title",\n  "url": "https://example.com/page"\n}\n</script>';
+      fixExplanation = 'Add valid JSON-LD that accurately describes visible page content. Replace the example URL and title, select the most specific supported Schema.org type, validate the JSON, and never include information users cannot see on the page.';
+    } else if (/https|ssl|secure/.test(rule)) {
+      codeSnippet = '# Configure a valid TLS certificate and redirect HTTP to HTTPS at your web server or hosting provider.\n# Update canonical tags, sitemap URLs, and internal links to the preferred HTTPS URL.';
+      fixExplanation = 'Use the hosting provider or web server to install/renew a valid TLS certificate and configure a single-hop HTTP-to-HTTPS redirect. Confirm the HTTPS page works before changing canonical tags or sitemap URLs.';
+    } else if (/broken link|404|not found/.test(rule)) {
+      codeSnippet = '# Replace the broken href with a verified destination, or remove the link if no equivalent page exists.';
+      fixExplanation = 'Open the affected URL and confirm whether the destination moved, was removed, or is temporarily unavailable. Update internal links to the final relevant URL; only add a redirect when a genuine replacement exists.';
+    } else if (/robots|index|noindex/.test(rule)) {
+      codeSnippet = '<meta name="robots" content="index,follow">';
+      fixExplanation = 'Check the page’s intended search visibility first. Only remove an unintended noindex directive when this page should be indexed, and also check robots.txt, HTTP headers, canonical URL, and authentication barriers.';
+    } else if (/performance|slow|ttfb|response time/.test(rule)) {
+      codeSnippet = '# Profile the slow request first; inspect server timing, database/query latency, caching, and oversized responses.\n# Enable appropriate page caching/compression after confirming content is safe to cache.';
+      fixExplanation = 'Measure the affected request and isolate the bottleneck before changing infrastructure. Server response delays usually require hosting, database, cache, or application-level work; verify with repeated measurements.';
+    } else if (/redirect/.test(rule)) {
+      codeSnippet = '# Point internal links directly to the final canonical URL and remove unnecessary redirect hops.';
+      fixExplanation = 'Trace the redirect chain and confirm its final destination. Update internal links and sitemap entries to point directly to the final HTTPS canonical URL; preserve redirects only where they serve a real migration or URL change.';
+    } else {
+      codeSnippet = issue.recommendation || 'Review the affected URL and apply the audit recommendation in the owning template or configuration.';
+      fixExplanation = `${issue.explanation || issue.recommendation || 'Review the issue evidence.'} Use the audit recommendation as the starting point, verify the change in a staging environment, and rerun CROX to confirm the issue is resolved.`;
+    }
+
+    return { fix_explanation: fixExplanation, code_snippet: codeSnippet, provider: 'fallback' };
   }
 }

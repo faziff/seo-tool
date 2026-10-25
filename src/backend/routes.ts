@@ -1,15 +1,6 @@
 import * as cheerio from 'cheerio';
-import express, { Response } from 'express';
-import { db, ScanEntity } from './db.js';
-import {
-  hashPassword,
-  verifyPassword,
-  generateToken,
-  requireAuth,
-  optionalAuth,
-  AuthenticatedRequest,
-  PLAN_LIMITS
-} from './auth.js';
+import express from 'express';
+import { db, ScanEntity, FixEntity } from './db.js';
 import { validateTargetUrl } from './security.js';
 import { WebsiteCrawler } from './crawler.js';
 import { SEOAuditEngine } from './seo_audit.js';
@@ -36,130 +27,13 @@ apiRouter.get('/health', (_req, res) => {
   });
 });
 
-// ==========================================
-// 2. AUTHENTICATION ENDPOINTS
-// ==========================================
-apiRouter.post('/auth/register', (req, res) => {
-  const { name, email, password, confirm_password } = req.body || {};
-
-  if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim() || typeof password !== 'string') {
-    return res.status(400).json({ detail: 'Enter your name, a valid email address, and a password.' });
-  }
-  if (name.trim().length > 100 || email.trim().length > 254) {
-    return res.status(400).json({ detail: 'Name or email is too long.' });
-  }
-  const cleanEmail = email.toLowerCase().trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ detail: 'Enter a valid email address.' });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ detail: 'Password must be at least 8 characters long.' });
-  }
-  if (password !== confirm_password) {
-    return res.status(400).json({ detail: 'Passwords do not match.' });
-  }
-  const existing = db.findUserByEmail(cleanEmail);
-  if (existing) {
-    return res.status(400).json({ detail: 'An account with this email address already exists.' });
-  }
-
-  const newUser = db.createUser({
-    name: String(name).trim(),
-    email: cleanEmail,
-    password_hash: hashPassword(password),
-    plan: 'free',
-    scans_used: 0,
-    created_at: new Date().toISOString(),
-    settings: {
-      max_pages: 15,
-      timeout_seconds: 12,
-      theme: 'light'
-    }
-  });
-
-  const token = generateToken(newUser);
-
-  res.status(201).json({
-    access_token: token,
-    token_type: 'bearer',
-    user: {
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email,
-      plan: newUser.plan,
-      created_at: newUser.created_at,
-      settings: newUser.settings
-    }
-  });
-});
-
-apiRouter.post('/auth/login', (req, res) => {
-  const { email, password } = req.body || {};
-
-  if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
-    return res.status(400).json({ detail: 'Enter both your email address and password.' });
-  }
-
-  const cleanEmail = email.toLowerCase().trim();
-  const user = db.findUserByEmail(cleanEmail);
-
-  if (!user || !verifyPassword(password, user.password_hash)) {
-    return res.status(401).json({ detail: 'Invalid email or password credentials.' });
-  }
-
-  const token = generateToken(user);
-
-  res.json({
-    access_token: token,
-    token_type: 'bearer',
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      plan: user.plan,
-      created_at: user.created_at,
-      settings: user.settings
-    }
-  });
-});
-
-apiRouter.get('/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
-  res.json({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    plan: user.plan,
-    scans_used: user.scans_used,
-    created_at: user.created_at,
-    settings: user.settings
-  });
-});
-
-apiRouter.post('/auth/change-password', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const { current_password, new_password } = req.body;
-  const user = req.user!;
-
-  if (!verifyPassword(current_password, user.password_hash)) {
-    return res.status(400).json({ detail: 'Current password does not match records.' });
-  }
-
-  if (!new_password || new_password.length < 6) {
-    return res.status(400).json({ detail: 'New password must be at least 6 characters long.' });
-  }
-
-  db.updateUser(user.id, { password_hash: hashPassword(new_password) });
-  res.json({ status: 'success', message: 'Password updated successfully.' });
-});
-
-apiRouter.post('/auth/logout', (_req, res) => {
-  res.json({ status: 'success', message: 'Logged out successfully.' });
-});
+// Authentication routes are intentionally omitted in this dashboard-only build.
+// Add your preferred account system before enabling public multi-user access.
 
 // ==========================================
 // 3. SCAN & CRAWLER ENDPOINTS
 // ==========================================
-apiRouter.post('/scans', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/scans', async (req, res) => {
   const { url, max_pages } = req.body;
 
   if (!url) {
@@ -175,24 +49,18 @@ apiRouter.post('/scans', optionalAuth, async (req: AuthenticatedRequest, res: Re
   const targetUrl = validation.normalizedUrl;
   const domain = validation.hostname;
 
-  // Plan limits check
-  let maxPages = 20;
-  if (req.user) {
-    const limits = PLAN_LIMITS[req.user.plan] || PLAN_LIMITS.free;
-    maxPages = Math.min(max_pages ? parseInt(max_pages, 10) : limits.maxPagesPerScan, limits.maxPagesPerScan);
-
-    // Save website project to user
-    db.findOrCreateWebsite(req.user.id, domain, targetUrl);
-  } else {
-    maxPages = Math.min(max_pages ? parseInt(max_pages, 10) : 15, 15);
-  }
+  // Single-workspace dashboard limits. Clamp all client input to a safe finite range.
+  const requestedPages = Number(max_pages);
+  const maxPages = Number.isFinite(requestedPages) && requestedPages > 0
+    ? Math.min(50, Math.max(1, Math.floor(requestedPages)))
+    : 15;
 
   const scanId = `scan-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
 
   const scanEntity: ScanEntity = {
     id: scanId,
-    user_id: req.user ? req.user.id : null,
+    user_id: null,
     target_url: targetUrl,
     domain,
     status: 'pending',
@@ -307,10 +175,6 @@ apiRouter.post('/scans', optionalAuth, async (req: AuthenticatedRequest, res: Re
         completed_at: new Date().toISOString()
       });
 
-      // Update user usage counter
-      if (req.user) {
-        db.updateUser(req.user.id, { scans_used: (req.user.scans_used || 0) + 1 });
-      }
     })
     .catch((err) => {
       activeCrawlers.delete(scanId);
@@ -324,9 +188,10 @@ apiRouter.post('/scans', optionalAuth, async (req: AuthenticatedRequest, res: Re
     });
 });
 
-apiRouter.get('/scans', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
-  const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 15;
-  const scans = db.listScans(req.user ? req.user.id : null, limit);
+apiRouter.get('/scans', (req, res) => {
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(100, Math.floor(requestedLimit)) : 15;
+  const scans = db.listScans(null, limit);
 
   const formatted = scans.map(s => ({
     id: s.id,
@@ -435,7 +300,7 @@ apiRouter.get('/scans/:id/report', (req, res) => {
   res.json(report);
 });
 
-apiRouter.delete('/scans/:id', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/scans/:id', (req, res) => {
   const scanId = req.params.id;
 
   // Cancel if actively running
@@ -444,7 +309,7 @@ apiRouter.delete('/scans/:id', optionalAuth, (req: AuthenticatedRequest, res: Re
     activeCrawlers.delete(scanId);
   }
 
-  const deleted = db.deleteScan(scanId, req.user ? req.user.id : undefined);
+  const deleted = db.deleteScan(scanId);
   if (!deleted) {
     return res.status(404).json({ detail: 'Scan not found or permission denied.' });
   }
@@ -510,7 +375,129 @@ apiRouter.post('/ai/fix', async (req, res) => {
     evidence: evidence || '',
     explanation: explanation || ''
   });
-  res.json(fix);
+  // Keep the legacy Issue Detail modal contract while exposing structured fields
+  // for newer clients and Fix Center.
+  res.json({
+    status: 'success',
+    ...fix,
+    fix_content: [fix.fix_explanation, fix.code_snippet].filter(Boolean).join('\n\n'),
+    remediation_guide: fix.fix_explanation
+  });
+});
+
+// ==========================================
+// 4A. FIX CENTER — persistent AI-assisted drafts
+// ==========================================
+apiRouter.get('/fixes', (req, res) => {
+  const scanId = String(req.query.scan_id || '').trim();
+  if (!scanId) return res.status(400).json({ detail: 'scan_id is required.' });
+  if (!db.getScan(scanId)) return res.status(404).json({ detail: 'Scan not found.' });
+  res.json(db.getFixesForScan(scanId));
+});
+
+apiRouter.post('/fixes/generate', async (req, res) => {
+  const scanId = typeof req.body?.scan_id === 'string' ? req.body.scan_id.trim() : '';
+  if (!scanId) return res.status(400).json({ detail: 'Select a completed scan before generating fixes.' });
+  const scan = db.getScan(scanId);
+  if (!scan) return res.status(404).json({ detail: 'Scan not found.' });
+  if (scan.status !== 'completed') return res.status(409).json({ detail: 'Wait until the website audit is complete before generating fixes.' });
+
+  const allIssues = db.getIssuesForScan(scanId);
+  const existing = db.getFixesForScan(scanId);
+  const existingIssueIds = new Set(existing.map(fix => fix.issue_id));
+  const requestedIds = Array.isArray(req.body?.issue_ids)
+    ? new Set(req.body.issue_ids.filter((id: unknown): id is string => typeof id === 'string'))
+    : null;
+  const severityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+  const candidates = allIssues
+    .filter(issue => !issue.resolved && !existingIssueIds.has(issue.id) && (!requestedIds || requestedIds.has(issue.id)))
+    .sort((a, b) => (severityOrder[a.severity] ?? 4) - (severityOrder[b.severity] ?? 4));
+  const maxItemsRaw = Number(req.body?.max_items);
+  const maxItems = Number.isFinite(maxItemsRaw) ? Math.max(1, Math.min(15, Math.floor(maxItemsRaw))) : 15;
+  const batch = candidates.slice(0, maxItems);
+  const generated: FixEntity[] = [];
+  let cursor = 0;
+
+  // Keep a small concurrency cap to reduce API burst/rate-limit risk.
+  const worker = async () => {
+    while (cursor < batch.length) {
+      const issue = batch[cursor++];
+      try {
+        const suggestion = await AIService.generateFix({
+          title: issue.title,
+          category: issue.category,
+          affected_url: issue.affected_url,
+          evidence: issue.evidence,
+          explanation: issue.explanation,
+          recommendation: issue.recommendation
+        });
+        const now = new Date().toISOString();
+        const record: FixEntity = {
+          id: `fix-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          scan_id: scanId,
+          issue_id: issue.id,
+          issue_title: issue.title,
+          category: issue.category,
+          severity: issue.severity,
+          affected_url: issue.affected_url,
+          evidence: issue.evidence,
+          recommendation: issue.recommendation,
+          fix_explanation: suggestion.fix_explanation,
+          code_snippet: suggestion.code_snippet,
+          status: 'draft',
+          generated_by: suggestion.provider,
+          created_at: now,
+          updated_at: now
+        };
+        generated.push(db.createFix(record));
+      } catch (error: any) {
+        console.error(`[CROX Fix Center] Draft generation failed for ${issue.id}:`, error?.message || error);
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(3, batch.length) }, () => worker()));
+  // Persist the whole batch once rather than synchronously writing the JSON store
+  // after every draft. This reduces file-system churn for larger audit batches.
+  db.saveImmediately();
+  const fixes = db.getFixesForScan(scanId);
+  const savedIssueIds = new Set(fixes.map(fix => fix.issue_id));
+  const remainingCount = allIssues.filter(issue =>
+    !issue.resolved && (!requestedIds || requestedIds.has(issue.id)) && !savedIssueIds.has(issue.id)
+  ).length;
+  res.json({
+    fixes,
+    generated_count: generated.length,
+    remaining_count: remainingCount,
+    provider_mode: process.env.GEMINI_API_KEY ? 'gemini-enabled-with-local-fallback' : 'local-fallback',
+    message: generated.length ? `Generated ${generated.length} draft${generated.length === 1 ? '' : 's'}. Review before using them.` : 'No new unresolved issues needed drafts.'
+  });
+});
+
+apiRouter.patch('/fixes/:id', (req, res) => {
+  const updates: { status?: 'draft' | 'approved' | 'rejected'; code_snippet?: string; fix_explanation?: string } = {};
+  if (req.body?.status !== undefined) {
+    if (!['draft', 'approved', 'rejected'].includes(req.body.status)) {
+      return res.status(400).json({ detail: 'Status must be draft, approved, or rejected.' });
+    }
+    updates.status = req.body.status;
+  }
+  if (req.body?.code_snippet !== undefined) {
+    if (typeof req.body.code_snippet !== 'string' || req.body.code_snippet.length > 12000) {
+      return res.status(400).json({ detail: 'Code draft must be text no longer than 12,000 characters.' });
+    }
+    updates.code_snippet = req.body.code_snippet;
+  }
+  if (req.body?.fix_explanation !== undefined) {
+    if (typeof req.body.fix_explanation !== 'string' || req.body.fix_explanation.length > 6000) {
+      return res.status(400).json({ detail: 'Fix explanation must be text no longer than 6,000 characters.' });
+    }
+    updates.fix_explanation = req.body.fix_explanation;
+  }
+  if (!Object.keys(updates).length) return res.status(400).json({ detail: 'Provide a status or an edited draft.' });
+  const updated = db.updateFix(req.params.id, updates);
+  if (!updated) return res.status(404).json({ detail: 'Fix draft not found.' });
+  res.json(updated);
 });
 
 apiRouter.post('/ai/chat', async (req, res) => {
@@ -731,117 +718,83 @@ apiRouter.post('/competitor/compare', async (req, res) => {
 // 6. PERFORMANCE & INTEGRATIONS
 // ==========================================
 apiRouter.get('/pagespeed', async (req, res) => {
-  const targetUrl = req.query.url as string;
-  const strategy = (req.query.strategy as string) || 'mobile';
+  const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
+  const rawStrategy = typeof req.query.strategy === 'string' ? req.query.strategy : 'mobile';
+  const strategy = rawStrategy.toLowerCase();
 
-  if (!targetUrl) {
-    return res.status(400).json({ detail: 'URL query parameter is required.' });
+  if (!rawUrl.trim()) return res.status(400).json({ status: 'error', message: 'URL query parameter is required.' });
+  if (strategy !== 'mobile' && strategy !== 'desktop') {
+    return res.status(400).json({ status: 'error', message: 'Strategy must be mobile or desktop.' });
   }
 
-  // Measure live HTTP latency
-  const start = performance.now();
-  let reachable = false;
-  let status = 200;
+  // Validate targets before passing them to a remote provider. This also keeps
+  // the endpoint aligned with the crawler's public-URL and SSRF restrictions.
+  const validation = await validateTargetUrl(rawUrl);
+  if (!validation.valid) {
+    return res.status(400).json({ status: 'error', message: validation.error || 'Target URL could not be validated.' });
+  }
+
+  const apiKey = process.env.PAGESPEED_API_KEY;
+  if (!apiKey) {
+    return res.json({
+      status: 'not_configured',
+      message: 'Google PageSpeed Insights is not connected yet. Add PAGESPEED_API_KEY to the server .env file and restart CROX. The crawl timing cards below still show timings measured during this audit.'
+    });
+  }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const resp = await fetch(targetUrl, { signal: controller.signal, method: 'HEAD' });
-    clearTimeout(timeout);
-    reachable = resp.ok;
-    status = resp.status;
-  } catch {
-    reachable = false;
+    const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+    endpoint.searchParams.set('url', validation.normalizedUrl);
+    endpoint.searchParams.set('strategy', strategy);
+    endpoint.searchParams.set('category', 'performance');
+    endpoint.searchParams.set('key', apiKey);
+
+    const providerResponse = await fetch(endpoint, { signal: AbortSignal.timeout(30000), headers: { Accept: 'application/json' } });
+    const payload: any = await providerResponse.json().catch(() => null);
+    if (!providerResponse.ok) {
+      const providerMessage = typeof payload?.error?.message === 'string' ? payload.error.message : 'Google PageSpeed Insights request failed.';
+      return res.status(502).json({ status: 'error', message: providerMessage });
+    }
+
+    const audits = payload?.lighthouseResult?.audits || {};
+    const rawScore = payload?.lighthouseResult?.categories?.performance?.score;
+    const performanceScore = typeof rawScore === 'number' ? Math.round(rawScore * 100) : null;
+    const lcp = audits['largest-contentful-paint']?.displayValue || null;
+    const cls = audits['cumulative-layout-shift']?.displayValue || null;
+    const fcp = audits['first-contentful-paint']?.displayValue || null;
+
+    return res.json({
+      status: 'success',
+      data: { performance_score: performanceScore, lcp, cls, fcp },
+      target_url: validation.normalizedUrl,
+      strategy,
+      provider: 'Google PageSpeed Insights',
+      fetched_at: new Date().toISOString()
+    });
+  } catch (error: any) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return res.status(timedOut ? 504 : 502).json({
+      status: 'error',
+      message: timedOut ? 'Google PageSpeed Insights timed out. Try again shortly.' : 'Could not reach Google PageSpeed Insights from the CROX server.'
+    });
   }
-
-  const latencyMs = Math.round(performance.now() - start);
-
-  // Return genuine measurement + explicit provider status for Lighthouse lab tests
-  res.json({
-    target_url: targetUrl,
-    strategy,
-    reachable,
-    http_status: status,
-    measured_ttfb_ms: latencyMs,
-    performance_score: reachable ? (latencyMs < 500 ? 92 : latencyMs < 1200 ? 76 : 58) : 0,
-    metrics: {
-      fcp_seconds: reachable ? Number((latencyMs / 1000 + 0.6).toFixed(2)) : 0,
-      lcp_seconds: reachable ? Number((latencyMs / 1000 + 1.4).toFixed(2)) : 0,
-      cls: 0.04,
-      speed_index_seconds: reachable ? Number((latencyMs / 1000 + 0.9).toFixed(2)) : 0
-    },
-    provider_status: 'Live HTTP timing measured. Google PageSpeed API key can be configured in .env for synthetic lab audits.'
-  });
 });
 
 apiRouter.get('/integrations/status', (_req, res) => {
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+  const pageSpeedConfigured = Boolean(process.env.PAGESPEED_API_KEY);
   res.json({
+    gemini: { configured: geminiConfigured, model: 'gemini-2.5-flash' },
+    pagespeed: { configured: pageSpeedConfigured },
     gemini_ai: {
-      status: process.env.GEMINI_API_KEY ? 'connected' : 'disconnected',
-      description: 'Google Gemini 2.5 Flash for automated code remedies and SEO advice.'
+      status: geminiConfigured ? 'connected' : 'disconnected',
+      description: 'Google Gemini 2.5 Flash for NOVA assistant and AI-assisted fix drafts.'
     },
     pagespeed_insights: {
-      status: 'active',
-      description: 'Real-time TTFB and server response time telemetry.'
+      status: pageSpeedConfigured ? 'connected' : 'not_configured',
+      description: pageSpeedConfigured ? 'Google PageSpeed Insights API is configured.' : 'Add PAGESPEED_API_KEY to enable Lighthouse lab reports.'
     },
-    google_search_console: {
-      status: 'disconnected',
-      description: 'Google Search Console OAuth integration for organic impressions & clicks.'
-    },
-    stripe_billing: {
-      status: 'demo_mode',
-      description: 'SaaS subscription billing gateway.'
-    }
+    google_search_console: { status: 'not_connected', description: 'Search Console OAuth is not implemented in this build.' },
+    stripe_billing: { status: 'not_connected', description: 'Billing integration is not implemented in this build.' }
   });
-});
-
-apiRouter.get('/plans', (_req, res) => {
-  res.json([
-    {
-      id: 'free',
-      name: 'Free Starter',
-      price_monthly: 0,
-      price_yearly: 0,
-      limits: PLAN_LIMITS.free,
-      features: [
-        '1 Website Project',
-        'Up to 15 crawled pages per scan',
-        'Full 20-check technical audit suite',
-        'Basic CSV export',
-        'CROX AI SEO assistant'
-      ]
-    },
-    {
-      id: 'pro',
-      name: 'Professional',
-      price_monthly: 49,
-      price_yearly: 470,
-      limits: PLAN_LIMITS.pro,
-      popular: true,
-      features: [
-        '10 Website Projects',
-        'Up to 100 crawled pages per scan',
-        'Historical scan comparisons & diffs',
-        'Keyword research & search intent tools',
-        'Competitor crawl comparison',
-        'Priority crawl engine',
-        'Full CSV & reporting downloads'
-      ]
-    },
-    {
-      id: 'agency',
-      name: 'Agency Enterprise',
-      price_monthly: 149,
-      price_yearly: 1430,
-      limits: PLAN_LIMITS.agency,
-      features: [
-        'Unlimited Website Projects',
-        'Up to 500 crawled pages per scan',
-        'Multi-domain competitor gap analysis',
-        'Automated scheduled audits',
-        'White-label client exports',
-        'Full REST API access'
-      ]
-    }
-  ]);
 });

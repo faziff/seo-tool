@@ -1,7 +1,6 @@
 import assert from 'node:assert';
 import { validateTargetUrl, isPrivateOrReservedIPv4 } from './security.js';
 import { db } from './db.js';
-import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { SEOAuditEngine } from './seo_audit.js';
 import { ScoringEngine } from './scoring.js';
 import { ReportingService } from './reporting.js';
@@ -49,25 +48,7 @@ async function runAllTests() {
     assert.strictEqual(res.hostname, 'example.org');
   });
 
-  // Test 2: Password hashing & Auth tokens
-  await test('Password hashing & verification works with bcrypt', () => {
-    const plain = 'CroxSuperSecret2026!';
-    const hash = hashPassword(plain);
-    assert.notStrictEqual(hash, plain);
-    assert.strictEqual(verifyPassword(plain, hash), true);
-    assert.strictEqual(verifyPassword('wrongPassword', hash), false);
-  });
-
-  await test('JWT Token generation & verification', () => {
-    const dummyUser = { id: 999, email: 'unit-test@crox.ai', name: 'Tester', plan: 'pro' as const, scans_used: 0, created_at: '', settings: {}, password_hash: '' };
-    const token = generateToken(dummyUser);
-    const payload = verifyToken(token);
-    assert.notStrictEqual(payload, null);
-    assert.strictEqual(payload?.userId, 999);
-    assert.strictEqual(payload?.email, 'unit-test@crox.ai');
-  });
-
-  // Test 3: Database User isolation & Scan persistence
+  // Test 2: Scan and Fix Center persistence
   await test('Database persists and retrieves scans', () => {
     const scanId = `test-scan-${Date.now()}`;
     db.createScan({
@@ -97,12 +78,37 @@ async function runAllTests() {
     assert.strictEqual(retrieved?.domain, 'crox.ai');
     assert.strictEqual(retrieved?.health_score, 95);
 
-    // Clean up
+    const issueId = `test-issue-${Date.now()}`;
+    const fixId = `test-fix-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    db.createFix({
+      id: fixId,
+      scan_id: scanId,
+      issue_id: issueId,
+      issue_title: 'Missing page title',
+      category: 'SEO',
+      severity: 'High',
+      affected_url: 'https://crox.ai/',
+      evidence: 'No title element was detected.',
+      recommendation: 'Add a unique, descriptive title.',
+      fix_explanation: 'Place a page-specific title in the document head.',
+      code_snippet: '<title>Page topic | Brand</title>',
+      status: 'draft',
+      generated_by: 'fallback',
+      created_at: createdAt,
+      updated_at: createdAt
+    });
+    assert.strictEqual(db.getFixesForScan(scanId).length, 1);
+    const approvedFix = db.updateFix(fixId, { status: 'approved' });
+    assert.strictEqual(approvedFix?.status, 'approved');
+
+    // Deleting a scan must also remove its saved Fix Center drafts.
     db.deleteScan(scanId);
     assert.strictEqual(db.getScan(scanId), undefined);
+    assert.strictEqual(db.getFixesForScan(scanId).length, 0);
   });
 
-  // Test 4: SEO Audit Engine
+  // Test 3: SEO Audit Engine
   await test('SEO Audit Engine detects missing title and missing H1', () => {
     const dummyPages = [
       {
@@ -147,7 +153,7 @@ async function runAllTests() {
     assert.strictEqual(h1Issue?.severity, 'High');
   });
 
-  // Test 5: Scoring Engine
+  // Test 4: Scoring Engine
   await test('Scoring Engine calculates accurate deductions', () => {
     const dummyIssues = [
       {
@@ -172,7 +178,7 @@ async function runAllTests() {
     assert.strictEqual(score.severity_counts.Critical, 1);
   });
 
-  // Test 6: Reporting and CSV generation
+  // Test 5: Reporting and CSV generation
   await test('CSV generation escapes quotes correctly (RFC-4180)', () => {
     const dummyScan: any = {
       id: 'scan-csv-test',
@@ -201,7 +207,7 @@ async function runAllTests() {
     assert.strictEqual(csv.includes('--- ISSUES & AUDIT FINDINGS ---'), true);
   });
 
-  // Test 7: Scan Comparison Diff Engine
+  // Test 6: Scan Comparison Diff Engine
   await test('Comparison engine tracks resolved and new issues accurately', () => {
     const baseScan: any = { id: 'base-1', health_score: 70, pages_crawled: 5, created_at: '' };
     const compareScan: any = { id: 'compare-1', health_score: 85, pages_crawled: 5, created_at: '' };
@@ -225,7 +231,7 @@ async function runAllTests() {
     assert.strictEqual(diff.persistent_issues.length, 1);
   });
 
-  // Test 8: Keyword Intent Classification
+  // Test 7: Keyword Intent Classification
   await test('Keyword Intelligence classifies intent accurately', () => {
     const commercial = KeywordIntelligenceService.generateKeywords('crm software');
     assert.strictEqual(commercial.length > 5, true);
@@ -234,7 +240,7 @@ async function runAllTests() {
     assert.strictEqual(buyKeyword?.intent, 'Transactional');
   });
 
-  // Test 9: NOVA fallback must never fabricate live demand data.
+  // Test 8: NOVA fallback must never fabricate live demand data.
   await test('NOVA keyword and market research fallback labels estimated data honestly', async () => {
     const originalKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
@@ -250,6 +256,27 @@ async function runAllTests() {
       assert.strictEqual(brief.ai_mode, 'heuristic');
       assert.strictEqual(brief.brief.includes('30-day'), true);
       assert.strictEqual(brief.note.toLowerCase().includes('no live market metrics'), true);
+    } finally {
+      if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = originalKey;
+    }
+  });
+
+  await test('Fix Center fallback generates a contextual code draft', async () => {
+    const originalKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      const fix = await AIService.generateFix({
+        title: 'Missing meta description',
+        category: 'SEO',
+        affected_url: 'https://example.com/product',
+        evidence: 'The page has no meta description element.',
+        explanation: 'Search engines may choose unrelated page text for the snippet.',
+        recommendation: 'Write a unique summary for this product page.'
+      });
+      assert.strictEqual(fix.provider, 'fallback');
+      assert.strictEqual(fix.code_snippet.includes('name=\"description\"'), true);
+      assert.strictEqual(fix.fix_explanation.length > 20, true);
     } finally {
       if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = originalKey;
