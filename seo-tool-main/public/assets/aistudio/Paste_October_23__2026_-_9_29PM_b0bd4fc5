@@ -1,0 +1,1188 @@
+# CROX — MASTER PROJECT TRANSFORMATION PROMPT
+## Complete SaaS Platform Repair, Real SEO Intelligence, Authentication, Pricing, Subscription System, Performance Optimization, and Premium UI
+
+You are a principal full-stack software engineer, senior SEO platform architect, technical SEO specialist, security engineer, database engineer, product designer, and SaaS infrastructure engineer.
+
+You are working on my EXISTING project:
+
+**CROX — Website Audit & SEO Intelligence Platform**
+
+The existing source code is already available in this project. Inspect it first, then repair and upgrade the real application.
+
+I do not want a static UI prototype, a fake dashboard, a disconnected frontend, or a new unrelated project.
+
+I want a genuinely functional, professionally designed SEO SaaS platform that can accept real website URLs, crawl real pages, produce evidence-based technical SEO reports, save user-specific reports, and offer additional SEO intelligence features through properly configured data integrations.
+
+The finished experience should have the clarity, usability, and breadth of a professional SEO platform such as Semrush, while using the original CROX brand and its own design identity.
+
+Do not copy Semrush branding, copyrighted assets, or its exact UI.
+
+# ABSOLUTE RULES
+
+1. Work directly in the current CROX repository.
+2. Preserve working components and existing functionality wherever practical.
+3. Diagnose the actual runtime before changing frameworks or rewriting the backend.
+4. Fix the scanner first, then complete the customer journey and expand the feature set.
+5. Never use fabricated SEO metrics or fake completed scans in the production application.
+6. Never report a URL as crawled unless the crawler actually fetched and processed it.
+7. Never report an audit rule as passed unless the rule was executed and its criteria passed.
+8. Every chart, score, counter, report, activity item, subscription status, and integration badge must reflect real application state or clearly identified sample content in a development-only environment.
+9. Do not remove security protections to make a scan complete.
+10. Do not expose API keys in frontend code, browser storage, public URLs, client-side environment variables, logs, or API responses.
+11. Do not claim that the application is complete merely because it compiles.
+12. Implement actual functionality, run available tests, diagnose failures, and verify the main user journeys wherever the environment permits.
+13. Do not ask me to design the missing features myself. Use reasonable engineering judgment.
+14. If a capability requires an external account, data provider, OAuth consent, payment gateway, or deployment secret, implement its integration point and clearly identify the remaining setup requirement.
+15. Never simulate a successful integration when it is not configured.
+16. Do not spend the entire task polishing the UI while the actual website scanner remains broken.
+
+---
+
+# PHASE 1 — INSPECT THE EXISTING PROJECT
+
+Before making changes, examine the repository, dependencies, routes, architecture, and runtime.
+
+Inspect relevant files, including:
+
+- src/App.tsx
+- src/services/api.ts
+- src/types/index.ts
+- src/components/*
+- src/pages/*
+- server.ts
+- vite.config.ts
+- package.json
+- backend/app/main.py
+- backend/app/api/routes.py
+- backend/app/core/config.py
+- backend/app/core/security.py
+- backend/app/database/session.py
+- backend/app/models/entities.py
+- backend/app/schemas/domain.py
+- backend/app/services/crawler.py
+- backend/app/services/seo_audit.py
+- backend/app/services/scoring.py
+- backend/app/services/performance.py
+- backend/app/services/ai_service.py
+- backend/tests/*
+- backend/requirements.txt
+- README.md
+- environment configuration examples
+
+File names may differ. Find the actual equivalents instead of assuming the repository matches this list exactly.
+
+Trace the complete request path from the website URL input to the completed audit report.
+
+Identify the actual reasons for broken scans, stale reports, disconnected APIs, authentication gaps, database problems, performance bottlenecks, and build failures.
+
+Write down the internal root causes as you investigate, and then fix them in the project.
+
+## Current known problem
+
+The current UI can remain at 5% while displaying:
+
+“Validating domain and SSRF restrictions…”
+
+The dashboard also displays old example.com information after a different domain has been entered.
+
+The existing frontend uses a demo report and a scanner request that can wait indefinitely.
+
+The existing architecture includes a React/Vite frontend, an Express server, and a Python FastAPI backend.
+
+Do not assume that the Python backend is running successfully in the current AI Studio environment. Verify the actual health endpoint, subprocess, proxy, and database connection.
+
+If the existing architecture can run reliably, repair it.
+
+If a required runtime is genuinely unsupported, migrate only the necessary parts to a supported server-side runtime, preserving the actual crawler, audit engine, security requirements, and database persistence.
+
+Do not replace the crawler with a JSON fixture or hardcoded successful response.
+
+---
+
+# PHASE 2 — FIX THE REAL WEBSITE SCANNER FIRST
+
+## 2.1 Website URL input
+
+A user must be able to enter domains in formats such as:
+
+- emanliving.com
+- https://emanliving.com
+- https://www.example.org
+
+Normalize the input, select a valid target URL, and show the selected target before or during the scan.
+
+Remove any default example.com value.
+
+Validate all submitted URLs server-side. Accept only appropriate public HTTP/HTTPS website targets. Reject invalid protocols, credentials embedded in URLs, prohibited network destinations, and malformed addresses.
+
+## 2.2 Repair the scan API
+
+Implement or repair:
+
+- GET /api/health
+- POST /api/scans
+- GET /api/scans/{scan_id}
+- GET /api/scans/{scan_id}/report
+- A scan cancellation endpoint where supported.
+
+Match the exact route naming conventions already used in the repository if they differ.
+
+The frontend must communicate with a real, running backend.
+
+A submitted scan should return a persistent scan ID and its actual initial state.
+
+Long-running crawl execution must happen on the server, not inside a blocking browser request.
+
+The browser must be able to leave and reopen the dashboard while a scan continues.
+
+## 2.3 Fix infinite loading
+
+Implement reliable scan-state management.
+
+Supported states should include pending, validating, discovering URLs, crawling, analyzing, collecting performance information, completed, failed, and cancelled where applicable.
+
+The backend must decide which state is active.
+
+Remove misleading local-only progress percentages.
+
+Display progress using actual counters and real crawl events. When exact percentage completion cannot be measured accurately, show an honest indeterminate progress state instead of inventing progress.
+
+Use bounded polling or an equivalent event-based system. Do not send overlapping status requests.
+
+Add:
+
+- Request cancellation.
+- Appropriate timeouts.
+- Clean polling lifecycle management.
+- Retry handling for transient failures.
+- Meaningful user-facing error messages.
+- Protection against duplicate scan submissions.
+- A retry option for failed scans.
+- Detection of stale or interrupted scans.
+- Safe recovery from server restarts.
+
+A slow website is not automatically a failed scan. A permanently stalled backend must not be presented as an active scan indefinitely.
+
+If the API fails, explain whether the problem was connectivity, URL validation, DNS resolution, timeout, rate limiting, backend execution, or another identified issue.
+
+## 2.4 Real crawler
+
+Implement a genuine crawler that retrieves actual public website pages.
+
+It should discover URLs from:
+
+- Internal links.
+- robots.txt.
+- XML sitemaps and sitemap indexes.
+- Canonical references and related page metadata where appropriate.
+
+The crawler should support configurable:
+
+- Maximum pages.
+- Crawl depth.
+- Same-domain or permitted subdomain scope.
+- URL inclusion/exclusion patterns.
+- Request timeouts.
+- Bounded concurrency.
+- JavaScript rendering when the deployment has a supported rendering engine.
+
+For each fetched page, collect actual response data, including:
+
+- URL and final redirected URL.
+- HTTP status.
+- Response headers.
+- Content type.
+- Response timing.
+- Content length when available.
+- Title and meta description.
+- H1 and other headings.
+- Canonical URL.
+- Robots directives.
+- Language metadata.
+- Internal and external links.
+- Image metadata.
+- Structured data.
+- Actual content text and relevant content metrics.
+
+Deduplicate URLs and prevent crawl traps, infinite paths, repeated parameters, and unbounded resource consumption.
+
+Handle broken pages, redirects, unavailable hosts, rate limits, oversized responses, non-HTML resources, DNS failures, and timeouts gracefully.
+
+Respect applicable crawling rules and reasonable server load.
+
+### SSRF protection
+
+Security is mandatory.
+
+Validate every URL, resolved IP address, redirect hop, and outbound destination.
+
+Block loopback, private, link-local, cloud-metadata, and otherwise prohibited targets. Account for IPv4, IPv6, DNS rebinding, redirects, and discovered URLs.
+
+Prevent the crawler from becoming a proxy into internal networks or server infrastructure.
+
+Never disable SSRF protections just to make a scan work.
+
+## 2.5 Remove all fake data
+
+Remove the production dependency on INITIAL_DEMO_REPORT and demo-scan-01.
+
+Remove the example.com dashboard report, fabricated issues, fixed category scores, fake activity records, fake recent scans, invented historical trends, and simulated integration statuses.
+
+Preserve legitimate real user data.
+
+When there is no scan history, display a real empty state.
+
+When a scan is incomplete, show its true status.
+
+When a scan fails, show the actual reason.
+
+When no previous scan exists, display “No previous scan available” instead of inventing historical comparisons.
+
+---
+
+# PHASE 3 — BUILD A SERIOUS TECHNICAL SEO AUDIT ENGINE
+
+Create a modular audit engine with independently testable rules.
+
+Implement at least 100 genuinely working audit checks as an initial target, expanding towards 140 or more where the available evidence supports meaningful, distinct rules.
+
+Never inflate the count with duplicate checks or pretend functionality.
+
+Every rule must include:
+
+- Stable ID.
+- Category.
+- Name.
+- Severity.
+- Executable detection logic.
+- Pass/fail/warning/not-applicable status.
+- Required source data.
+- Actual evidence.
+- Affected URLs.
+- Number of affected pages.
+- Impact explanation.
+- Recommended fix.
+- Verification instructions.
+- Documentation reference where appropriate.
+
+## 3.1 Crawlability and indexability
+
+Implement checks for:
+
+- Broken internal links.
+- Broken external links when link verification is enabled.
+- HTTP status problems.
+- Redirect chains and loops.
+- Incorrect redirect targets.
+- Missing and invalid canonical URLs.
+- Conflicting canonical and robots signals.
+- noindex directives.
+- Crawl blocks.
+- robots.txt availability and syntax.
+- XML sitemap availability and validity.
+- Sitemap URLs returning errors.
+- Sitemap and canonical inconsistencies.
+- Orphan-page candidates using available sitemap and link-graph evidence.
+- Excessive crawl depth.
+- Duplicate URL patterns.
+- Query-parameter variations.
+- Internal links pointing to redirects.
+- Internal links pointing to broken pages.
+- Incorrect protocol or hostname targets.
+- Unreachable HTML pages.
+- Non-indexable pages included in sitemaps where detectable.
+
+## 3.2 On-page SEO
+
+Implement checks for:
+
+- Missing, empty, duplicate, short, and long titles.
+- Missing, empty, duplicate, short, and long meta descriptions.
+- Missing and multiple H1 elements.
+- Heading hierarchy and repeated-heading problems.
+- Thin content using documented thresholds.
+- Possible duplicate content using actual normalized content or similarity analysis.
+- Missing viewport metadata.
+- Missing language attributes.
+- Missing or invalid canonical tags.
+- URL structure and readability.
+- Missing Open Graph metadata.
+- Missing social sharing metadata when appropriate.
+- Images with missing descriptive alt text.
+- Empty anchor text.
+- Repetitive metadata patterns.
+- Excessive title or description duplication.
+- Weak internal-link coverage.
+- Pages with insufficient contextual links.
+- Pagination metadata where relevant.
+- Language targeting inconsistencies.
+
+## 3.3 Technical SEO
+
+Implement meaningful checks for:
+
+- HTTPS.
+- Insecure internal HTTP references.
+- Mixed content when it can actually be observed.
+- Response header issues.
+- MIME type inconsistencies.
+- Excessive redirects.
+- Redirect loops.
+- Incorrect canonical hosts.
+- Hreflang validity and reciprocal relationships.
+- XML sitemap errors.
+- Robots directive conflicts.
+- Malformed JSON-LD.
+- Structured-data validation.
+- Broken structured-data references.
+- Missing applicable structured-data properties.
+- Image loading errors.
+- Image dimensions and oversized resources where measurable.
+- Document language and encoding.
+- Content-type mismatches.
+- Unexpected response behaviours.
+- Relevant crawl architecture problems.
+
+Use real Schema.org or other appropriate validators for checks that require standards validation. Do not label a syntax-only JSON-LD check as complete rich-result validation.
+
+## 3.4 Site structure and internal linking
+
+Implement:
+
+- Internal linking graph.
+- Incoming and outgoing link counts.
+- Crawl depth.
+- Broken internal links.
+- Links to redirected pages.
+- Low-internal-link page identification.
+- Orphan-page candidates with documented evidence.
+- Excessive outgoing-link observations.
+- Related-page opportunities based on actual page content.
+- URL group and page-template patterns.
+- Distribution of pages by status and indexability.
+- Useful link-text observations.
+
+Every reported number must be traceable to real crawl records.
+
+---
+
+# PHASE 4 — REAL PERFORMANCE AND CORE WEB VITALS
+
+Create a dedicated performance module.
+
+Integrate Google PageSpeed Insights using a supported API and secure server-side configuration.
+
+Collect separate mobile and desktop results where available.
+
+Display:
+
+- Lighthouse Performance score.
+- Largest Contentful Paint (LCP).
+- Cumulative Layout Shift (CLS).
+- Interaction to Next Paint (INP) when actually returned by an eligible data source.
+- First Contentful Paint (FCP).
+- Total Blocking Time (TBT).
+- Speed Index.
+- Available Lighthouse diagnostics.
+- Available field-data and CrUX information.
+- Resource transfer information and other measured diagnostics.
+
+Important distinctions:
+
+- TBT is a lab metric; it is not a substitute for INP.
+- Lighthouse lab metrics and field data must be visually distinguished.
+- Missing CrUX data means data unavailable, not that the website passed.
+- Historical performance trends require stored observations from genuine previous tests.
+- A page's HTTP response time is not equivalent to its user-experienced loading performance.
+
+Add meaningful insights based on the real returned diagnostics.
+
+Cache results only where appropriate, with a clear invalidation policy.
+
+Handle API quota errors, missing keys, target incompatibility, incomplete responses, and timeouts.
+
+If the API is not configured, mark the integration as disconnected and explain the setup needed. Do not generate a fake performance score.
+
+---
+
+# PHASE 5 — ACCURATE SEO SCORES AND REPORTS
+
+Create a documented scoring system.
+
+Calculate:
+
+- Overall CROX technical health score.
+- Crawlability and indexability score.
+- On-page SEO score.
+- Technical SEO score.
+- Performance score.
+- Accessibility score where measured.
+- Critical, high, medium, and low severity issue counts.
+- Passed checks.
+- Failed checks.
+- Warnings.
+- Checks not executed.
+- Pages crawled and discovered.
+- Successful, blocked, redirected, and failed pages.
+
+Scores must derive from actual executed checks and measured results.
+
+Document weighting, affected-page handling, severity, missing information, and duplicate-penalty prevention.
+
+Do not claim that a CROX health score is a Google ranking score or that a high score guarantees ranking improvements.
+
+Do not use fixed score percentages or manually hardcoded statistics.
+
+When scan coverage is incomplete, identify that limitation in the report.
+
+## Required report experience
+
+Provide:
+
+1. Audit overview.
+2. Crawled pages.
+3. Technical SEO.
+4. On-page SEO.
+5. Crawlability and indexability.
+6. Internal linking.
+7. Performance.
+8. Accessibility checks.
+9. Structured data.
+10. SEO recommendations.
+11. Historical comparisons.
+12. Export and printable reports.
+13. AI-powered explanations based on the actual report.
+14. Data-source and coverage limitations.
+
+Every issue should have a real detail page or drawer explaining the evidence, affected pages, impact, severity, remediation, and verification.
+
+Support searching, filtering, sorting, and pagination for large datasets.
+
+---
+
+# PHASE 6 — ADD ADVANCED SEO INTELLIGENCE FEATURES
+
+CROX must be structured to support a broader SEO workflow instead of remaining only a basic website checker.
+
+Implement the following modules using the real data available to each module.
+
+## 6.1 Keyword research
+
+Create a keyword research workspace supporting:
+
+- Seed keyword entry.
+- Keyword ideas.
+- Related query discovery.
+- Long-tail keyword suggestions.
+- Search-intent classification.
+- Keyword grouping and clustering.
+- Keyword difficulty when an authorized provider supplies it.
+- Search volume when an authorized provider supplies it.
+- CPC and other advertising metrics only when provided by an authorized data source.
+- Keyword lists and saved projects.
+- CSV exports.
+
+AI-generated keyword ideas must be clearly labelled as suggestions.
+
+Never invent search volume, keyword difficulty, CPC, or search-demand history.
+
+Use a provider-adapter architecture for real keyword data integrations. When a provider is not configured, explain that measured keyword metrics are unavailable.
+
+## 6.2 Competitor analysis
+
+Allow a user to enter a competitor's public domain.
+
+Provide comparisons only where real data is available, such as:
+
+- Website technical health.
+- Actual crawl findings.
+- Public page titles and headings.
+- Publicly observed content topics.
+- Available performance reports.
+- Actual authorized keyword or backlink data.
+- Differences between inspected page structures.
+
+Do not fabricate competitors' organic traffic, market share, keyword positions, authority scores, or conversion rates.
+
+Clearly distinguish directly crawled evidence from third-party estimates and AI-generated recommendations.
+
+## 6.3 Backlink analysis
+
+Create a backlink analytics interface ready for a genuine third-party backlink provider.
+
+Show actual fields only when the configured provider returns them, including:
+
+- Referring domains.
+- Backlink URLs.
+- Target URLs.
+- Anchor text.
+- Follow/nofollow attributes when known.
+- Link status and detected dates where available.
+- Source-defined authority metrics where licensed.
+- Available historical observations.
+
+Do not pretend that a normal website crawl can discover the entire backlink graph.
+
+If no provider is connected, display a clear connection state instead of fake backlink totals.
+
+## 6.4 Rank tracking
+
+Create the data model and interface for keyword rank tracking.
+
+Support:
+
+- Project and domain selection.
+- Keyword lists.
+- Search engine and location settings where supported.
+- Device settings where supported.
+- Historical positions.
+- Keyword groups.
+- Ranking movement.
+- Scheduled update configuration.
+- Actual data-source attribution.
+
+Use an appropriate authorized data provider.
+
+Do not continuously scrape restricted search pages or fabricate rankings when the provider is unavailable.
+
+## 6.5 Content optimization
+
+Use real page content and available keyword data for:
+
+- Title and description suggestions.
+- Heading suggestions.
+- Topic coverage observations.
+- Content-gap ideas.
+- Internal-link recommendations.
+- Search-intent analysis.
+- Content refresh suggestions.
+- Structured-data recommendations.
+
+Separate measured issues, content observations, and AI-generated suggestions.
+
+Users should be able to save suggestions and export recommendations.
+
+## 6.6 Scheduled audits
+
+Create recurring audit scheduling where the runtime supports reliable background execution.
+
+Support configurable recurring scans, cancellation, scan-history retention, and meaningful notifications.
+
+Use actual schedules and stored job states. Do not claim that a scheduled job ran when it did not.
+
+Provide resource limits and prevent users from exhausting the service through frequent or overlapping scans.
+
+---
+
+# PHASE 7 — CROX AI ASSISTANT
+
+Build a useful AI assistant inside the authenticated dashboard.
+
+It must use the user's real audit report and selected evidence.
+
+Required capabilities:
+
+- Explain a technical issue in plain language.
+- Prioritize fixes based on actual severity and impact.
+- Suggest title and meta-description revisions.
+- Suggest content improvements.
+- Recommend internal links from actual crawled URLs.
+- Explain available performance diagnostics.
+- Generate proposed structured-data snippets.
+- Summarize audit findings.
+- Compare two genuine scan reports.
+- Produce an actionable remediation plan.
+- Explain how to verify a fix.
+
+The assistant must not invent facts about a website that was not inspected.
+
+Its responses should distinguish measured findings, provider-sourced data, assumptions, and AI-generated ideas.
+
+Use Gemini through a supported server-side integration.
+
+Keep credentials in server-side environment configuration or AI Studio Secrets.
+
+Implement request validation, bounded input sizes, appropriate timeouts, error handling, rate limits, and cost controls.
+
+If no Gemini key is configured, provide a clear integration status. All non-AI crawler and SEO checks must continue to work.
+
+Never expose Gemini credentials to users.
+
+---
+
+# PHASE 8 — PUBLIC LANDING PAGE
+
+Transform the product into a complete SaaS website with a professional public entry point.
+
+Create a dedicated landing page at `/`.
+
+Use a premium technical SaaS visual system with:
+
+- CROX brand identity.
+- Clean light background and neutral surfaces.
+- Restrained indigo or purple accents.
+- Strong typography.
+- Refined buttons and forms.
+- High-quality spacing.
+- Meaningful product illustrations or interface previews.
+- Responsive layouts.
+- Accessible contrast and focus indicators.
+
+Include these sections:
+
+1. Header with CROX logo and navigation.
+2. Hero introducing CROX accurately.
+3. Real website URL audit call-to-action.
+4. Features overview.
+5. Technical SEO audits.
+6. Website performance.
+7. Crawlability and indexing.
+8. Keyword intelligence.
+9. Competitor analysis.
+10. Backlink analysis.
+11. AI recommendations.
+12. Product workflow explanation.
+13. Pricing preview.
+14. FAQ.
+15. Final call to action.
+16. Footer.
+
+Do not invent customer testimonials, company logos, rankings, supported integrations, or product capabilities.
+
+If a feature is not operational yet, describe it as planned, unavailable, or dependent on an integration. Do not present planned functionality as active.
+
+Public demo functionality may be offered only when clearly labelled as a demo and when demo data cannot be confused with a user's genuine report.
+
+The normal authenticated workspace must never display fabricated website results.
+
+---
+
+# PHASE 9 — PRICING AND SAAS SUBSCRIPTION SYSTEM
+
+Create a fully designed `/pricing` page.
+
+Provide configurable plan definitions instead of embedding plan logic throughout the frontend.
+
+Use these suggested plan categories as initial defaults. Keep prices and limits adjustable through central configuration.
+
+### Free
+
+For individuals testing CROX.
+
+Potential limits:
+
+- One website project.
+- A small monthly scan allowance.
+- A configurable page crawl limit.
+- Standard technical audit.
+- Basic report history.
+- Limited AI assistance.
+
+### Pro
+
+For individuals and small businesses.
+
+Potential features:
+
+- Increased scan allowance.
+- Larger page crawl limit.
+- More saved projects.
+- Detailed reports.
+- Historical comparison.
+- Enhanced exports.
+- Performance reports.
+- Additional AI assistance.
+
+### Agency
+
+For professional consultants and agencies.
+
+Potential features:
+
+- Multiple projects and domains.
+- Higher configurable scan limits.
+- Larger crawl budgets.
+- Advanced filtering and exports.
+- Team collaboration when implemented.
+- Scheduled audits.
+- Client-ready reporting.
+- Provider-based keyword and backlink tools when enabled.
+
+These are plan design suggestions, not claims that all these features already exist.
+
+Build an easy-to-maintain configuration covering plan names, prices, billing intervals, currency, limits, and feature permissions.
+
+Clearly communicate the differences between plans.
+
+Provide monthly and yearly billing presentation only when the associated billing options have actually been configured.
+
+Do not hardcode fictional prices or pretend a subscription was purchased.
+
+## Usage limits
+
+Enforce limits on the backend, not merely in the interface.
+
+Check the authenticated user's current plan and real usage before creating a scan, requesting an expensive AI action, using a premium integration, or exceeding the allowed crawl size.
+
+Use a consistent server-side entitlement system.
+
+When the limit is reached, show a clear explanation and an upgrade option.
+
+Do not silently reset monthly usage or grant premium features because the frontend claims the account has a paid plan.
+
+## Payments
+
+Create a proper billing integration boundary.
+
+Use a supported payment gateway only when real merchant credentials, webhook configuration, and required environment settings are available.
+
+Never fabricate payment success.
+
+Verify payment webhooks securely before changing subscription entitlements.
+
+Handle successful payments, unsuccessful payments, duplicate webhook events, cancellations, renewals, and subscription expiration where the provider supports them.
+
+If no payment gateway is configured, keep the pricing page working but label paid checkout as not configured. Do not send the user through a fake payment process.
+
+Do not assume a particular provider is available in my country. Use a configurable provider strategy based on actual supported merchant onboarding.
+
+---
+
+# PHASE 10 — SIGNUP, LOGIN, AND USER ONBOARDING
+
+Create working pages for:
+
+- `/signup`
+- `/login`
+- Password reset where configured.
+- Account profile.
+- Secure logout.
+- Protected application routes.
+
+Implement real server-side authentication using a secure system supported by the current deployment. An established authentication provider or a properly implemented session-based system is acceptable.
+
+Create the necessary user model, database relationships, migrations, and session handling.
+
+Registration must support:
+
+- Name.
+- Email.
+- Password.
+- Password confirmation.
+- Valid email format.
+- Duplicate account prevention.
+- Secure password hashing when using password-based server authentication.
+- Appropriate rate limiting.
+- Secure session creation.
+- Clear errors.
+- Loading states.
+
+Protect the authenticated application against unauthorized access.
+
+Users must not be able to view another user's reports, change another user's settings, or use another user's subscription by editing request parameters.
+
+Enforce record ownership on the server for scans, reports, exports, AI requests, subscriptions, and other private resources.
+
+Use HttpOnly session cookies or another properly configured secure authentication flow. Protect cookie-based state-changing requests against CSRF where applicable.
+
+Do not keep passwords or long-lived authentication credentials in localStorage.
+
+## Onboarding
+
+After registration:
+
+1. Ask the user to add their first website.
+2. Allow safe, understandable crawl settings.
+3. Start the real initial scan.
+4. Display the actual scan progress.
+5. Open the completed audit report.
+6. Explain how to interpret issues and recommendations.
+
+Returning users should see their own dashboard and scan history.
+
+Users with no completed scans should see an empty state rather than sample data.
+
+---
+
+# PHASE 11 — AUTHENTICATED DASHBOARD REDESIGN
+
+Create an elegant, professional dashboard under `/app`.
+
+Use a consistent layout with:
+
+- Responsive sidebar.
+- Top navigation.
+- Current project selector.
+- Website scanner input.
+- Account menu.
+- Real scan notifications where implemented.
+- Dashboard cards.
+- Audit report navigation.
+- Settings access.
+- Subscription and usage information.
+
+Recommended navigation:
+
+- Overview.
+- Site Audit.
+- SEO Analysis.
+- Keyword Research.
+- Competitor Analysis.
+- Backlink Analytics.
+- Rank Tracking.
+- Performance.
+- Accessibility.
+- Technical Issues.
+- Content Opportunities.
+- Reports.
+- Scheduled Audits.
+- AI Assistant.
+- Settings.
+
+Only enable fully interactive navigation for implemented features. Unconfigured provider-dependent modules must communicate their status clearly.
+
+Dashboard widgets must use the authenticated user's actual data.
+
+Show:
+
+- Actual website health score.
+- Real scanned-page count.
+- Real issues by severity.
+- Real category scores.
+- Crawl status.
+- Actual recent scans.
+- Actual performance measurements.
+- Real usage against plan limits.
+
+Do not show meaningless decorative statistics.
+
+Provide useful empty states, report loading indicators, accessible modals, readable tables, and clear error recovery actions.
+
+Preserve and improve existing CROX visual assets when suitable.
+
+Avoid unnecessarily large headers, excessive gradients, fake graphs, overcrowded tables, and distracting animation.
+
+---
+
+# PHASE 12 — ADVANCED REPORTS AND EXPORTS
+
+Retain and improve scan history, CSV export, and report comparison.
+
+Provide:
+
+- Real scan history.
+- Domain and date filters.
+- Issue severity filters.
+- Issue status updates.
+- Search and pagination.
+- CSV export with proper escaping.
+- Printable or PDF reports where practical.
+- Two-scan comparisons.
+- New issue identification.
+- Resolved issue identification.
+- Persistent issue identification.
+- Actual score changes.
+- Affected-page differences.
+
+Compare only actual stored results.
+
+Use stable rule IDs and normalized URLs to match issues across scans.
+
+Display limitations if scan configurations differ significantly.
+
+Do not invent a historical performance line, score improvement, or resolved issue.
+
+All exports and private reports must enforce account ownership.
+
+---
+
+# PHASE 13 — ACCOUNT SETTINGS AND ADMINISTRATION
+
+## User settings
+
+Provide functional settings for:
+
+### Profile
+
+- Name.
+- Email.
+- Account information.
+- Password changes or authentication-provider settings.
+- Secure logout.
+
+### Appearance
+
+- Light mode.
+- Dark mode if completely supported.
+- System preference.
+- Persisted preference.
+
+### Crawl defaults
+
+- Default page limit.
+- Default crawl depth.
+- Timeout preference within server-enforced limits.
+- Default domain scope.
+- Preferred performance test device.
+- Default filters.
+
+### Integrations
+
+- Gemini.
+- Google PageSpeed Insights.
+- Google Search Console.
+- SEO data providers.
+- Payment integration status where relevant.
+
+Display accurate connection states.
+
+### Data management
+
+- Scan history.
+- Report export.
+- Safe scan/report deletion.
+- Account deletion where properly implemented.
+- Explanation of stored data.
+
+Settings must persist real values.
+
+## Admin functionality
+
+Implement a separate, protected administration area only if there is a secure administrative authorization model.
+
+It may provide:
+
+- User and account management.
+- Subscription and entitlement management.
+- Global configuration.
+- Integration health.
+- Background-job status.
+- Scan failure diagnostics.
+- Usage statistics based on real stored data.
+- Audit/security logs.
+- Service limits.
+
+Do not expose administrative operations to ordinary users.
+
+Admin privileges must be assigned and verified server-side. Never grant admin privileges because a request sends `isAdmin: true` or because the user registered first.
+
+Do not create arbitrary public admin credentials or hardcoded production passwords.
+
+Keep sensitive API keys out of admin responses.
+
+---
+
+# PHASE 14 — GOOGLE SEARCH CONSOLE AND EXTERNAL INTEGRATIONS
+
+Implement optional, genuine data integrations.
+
+## Google Search Console
+
+Support a real Google OAuth 2.0 authorization flow for users who want to connect their own website property.
+
+Request only appropriate scopes.
+
+Display real available metrics, such as clicks, impressions, CTR, average position, queries, pages, countries, and devices, where returned by the authorized API and available for that property.
+
+Securely store and refresh credentials as appropriate.
+
+Allow users to disconnect integrations and revoke or discard stored credentials safely.
+
+Do not display Search Console metrics for an unauthorized property.
+
+## Keyword and backlink providers
+
+Create reusable provider adapters for future integration of authorized third-party SEO-data services.
+
+Keep each provider's connection state, credentials, API errors, data types, limits, and source attribution separate.
+
+Never treat Gemini as a source of measured search volume, live ranking positions, authoritative backlink totals, or competitor traffic estimates.
+
+If a provider is unavailable, show an honest not-connected or data-unavailable state.
+
+## Integration monitoring
+
+Create server-side integration status checks.
+
+A configured API key does not guarantee a successful connection.
+
+Use real connection-test responses, meaningful timeouts, and understandable error messages.
+
+Do not return secrets to the browser merely to show a connected badge.
+
+---
+
+# PHASE 15 — SECURITY, RELIABILITY, AND PERFORMANCE
+
+Treat CROX as an application that may eventually contain many users and large scan histories.
+
+## Frontend
+
+- Use typed API clients.
+- Add route-level lazy loading where useful.
+- Prevent excessive component rerenders.
+- Avoid fetching complete large reports unnecessarily.
+- Use pagination or virtualization for large datasets.
+- Add clear loading, empty, and error states.
+- Prevent duplicate requests.
+- Clean up polling and abort controllers.
+- Handle expired sessions.
+- Prevent stale responses from overwriting a newer scan.
+- Ensure mobile responsiveness and accessibility.
+- Respect reduced-motion preferences.
+
+## Backend
+
+- Keep long-running crawls asynchronous.
+- Use bounded concurrency.
+- Bound request size, response size, and processing time.
+- Persist scan progress.
+- Handle database sessions and transactions reliably.
+- Recover from process restarts.
+- Prevent unbounded job queues.
+- Prevent duplicate jobs.
+- Add rate limiting.
+- Implement structured logging without secrets.
+- Use consistent error responses.
+- Handle provider quotas and outages.
+- Use safe caching where beneficial.
+- Enforce authentication and ownership on every protected endpoint.
+
+Use reliable job handling compatible with the actual deployment. Do not add expensive infrastructure unnecessarily.
+
+If an external service has a usage cost, make its use visible in configuration and apply appropriate quotas.
+
+## Data and secrets
+
+Use migrations or an equivalent safe schema-change process.
+
+Do not delete existing user data just to change the schema.
+
+Keep environment-variable names documented.
+
+Use server-side configuration and secret storage supported by the actual hosting environment.
+
+Never store private credentials in frontend code, source-controlled `.env` files, or public API responses.
+
+---
+
+# PHASE 16 — TESTING AND VERIFICATION
+
+Add and run meaningful automated tests.
+
+Test the following:
+
+1. URL parsing and normalization.
+2. URL validation.
+3. SSRF restrictions.
+4. Redirect destination checks.
+5. DNS and IP handling.
+6. API health.
+7. Scan creation.
+8. Real scan progress.
+9. Report persistence.
+10. Crawler deduplication.
+11. robots.txt and sitemap parsing.
+12. HTTP failure handling.
+13. Audit-rule logic.
+14. Scoring and issue counts.
+15. PageSpeed response parsing.
+16. Gemini integration errors.
+17. Account registration.
+18. Login and logout.
+19. Session handling.
+20. User isolation.
+21. Subscription entitlement checks.
+22. Payment webhook validation if implemented.
+23. Scan history and exports.
+24. Report comparison.
+25. Settings persistence.
+26. Missing-credential behaviour.
+27. Frontend routing.
+28. Mobile layout.
+29. Build output.
+
+Run the relevant available project commands, such as:
+
+- npm run lint
+- npm run build
+- npm run test:backend
+
+Use the actual test scripts defined in the project.
+
+Use deterministic mocks for external services in unit tests. Never use those mock results as the production site's report.
+
+Do not weaken validation, remove important tests, or suppress genuine failures just to obtain a passing build.
+
+If a command cannot run because a dependency or runtime is missing, state the exact blocker.
+
+## Live end-to-end acceptance test
+
+Verify this precise user journey where the environment permits:
+
+1. Open the CROX landing page.
+2. Open pricing.
+3. Create a real account.
+4. Log in.
+5. Add a permitted public website domain.
+6. Start a scan.
+7. Observe real progress.
+8. Complete the crawl.
+9. Open the report.
+10. Inspect actual issues and evidence.
+11. Open scan history.
+12. Refresh the browser.
+13. Confirm the account and report state are restored appropriately.
+14. Export a report.
+15. Change a setting and verify persistence.
+16. Log out.
+17. Confirm protected routes require authentication.
+18. Confirm another user cannot access the original user's report.
+19. Test a missing API key.
+20. Test a failed or unreachable target and verify that CROX displays a truthful error.
+
+A TypeScript build passing is not evidence that the crawler works.
+
+A unit test passing is not evidence that authentication, OAuth, payments, or the live scan flow is correctly configured.
+
+---
+
+# PHASE 17 — FINAL DELIVERY REQUIREMENTS
+
+Implement the project directly in the current repository.
+
+Prioritize work in this order:
+
+1. Fix the scan that gets stuck at 5%.
+2. Verify the backend and actual report retrieval.
+3. Remove all false demo reports.
+4. Complete real crawling and SEO checks.
+5. Implement signup, login, and secure user-specific storage.
+6. Build landing page, pricing, onboarding, and the authenticated dashboard.
+7. Implement genuine integrations.
+8. Add provider-based SEO intelligence features.
+9. Implement subscription entitlements and payment integration where configured.
+10. Improve settings, admin controls, UI polish, and performance.
+11. Run tests and verify the main user journeys.
+12. Update documentation.
+
+At completion, provide an implementation report containing:
+
+- Actual root cause of the scanner failure.
+- Files changed.
+- Features that now genuinely work.
+- Features that require an external account or API key.
+- Required environment-variable names.
+- Database changes and migration requirements.
+- Authentication and billing setup requirements.
+- Exact commands executed.
+- Actual build and test results.
+- Whether a real website scan was completed and verified.
+- Known limitations.
+- Remaining manual configuration.
+
+Do not say “everything is completed” if major functionality remains missing.
+
+Do not give me merely another list of recommendations.
+
+**The goal is a functional CROX SaaS application with real website auditing, secure accounts, a polished public website, a proper pricing journey, detailed reports, and a reliable backend—not just an attractive dashboard.**

@@ -1,0 +1,6 @@
+{
+  "name": "CROX — SEO & Market Intelligence",
+  "description": "Website audits, keyword research, competitor homepage insights, and NOVA AI strategy tools in one authenticated workspace.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
