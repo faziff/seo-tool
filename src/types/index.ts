@@ -1,12 +1,45 @@
 export type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
 export type IssueCategory = 'SEO' | 'Technical' | 'Performance' | 'Accessibility' | 'Crawlability';
 
+export interface CreditCounter {
+  used: number;
+  daily_limit: number;
+  bonus: number;
+  remaining: number;
+}
+
+export interface CreditSnapshot {
+  timezone: string;
+  day_key: string;
+  resets_in_ms: number;
+  resets_in: string;
+  audits: CreditCounter;
+  ai: CreditCounter;
+  keywords: CreditCounter;
+  header_label: string;
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
   created_at: string;
   settings?: Record<string, any>;
+  is_admin?: boolean;
+  plan?: 'free' | 'pro' | 'agency';
+  credits?: CreditSnapshot;
+}
+
+export type ChecklistStatus = 'Found' | 'Missing' | 'Problem';
+export interface PageChecklistItem {
+  key: string;
+  label: string;
+  status: ChecklistStatus;
+  detail: string;
+  fix: string;
+}
+export interface PageChecklist {
+  items: PageChecklistItem[];
 }
 
 export interface Issue {
@@ -39,6 +72,8 @@ export interface ScannedPage {
   h1_count: number;
   word_count: number;
   is_indexable: boolean;
+  extra?: Record<string, any>;
+  checklist?: PageChecklist;
 }
 
 export interface CategoryScore {

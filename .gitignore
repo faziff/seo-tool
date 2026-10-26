@@ -11,3 +11,6 @@ coverage/
 .data/
 # Legacy local SQLite account / scan data (do not commit or bundle)
 crox.db
+crox.sqlite
+*.sqlite
+*.sqlite.tmp

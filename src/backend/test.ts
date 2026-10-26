@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { validateTargetUrl, isPrivateOrReservedIPv4 } from './security.js';
-import { db } from './db.js';
+import { db, initDb } from './db.js';
 import { SEOAuditEngine } from './seo_audit.js';
 import { ScoringEngine } from './scoring.js';
 import { ReportingService } from './reporting.js';
@@ -22,6 +22,8 @@ async function test(name: string, fn: () => void | Promise<void>) {
 }
 
 async function runAllTests() {
+  process.env.DB_PATH = process.env.DB_PATH || `${process.cwd()}/.data/crox-test.sqlite`;
+  await initDb();
   console.log('\n=== RUNNING CROX BACKEND TEST SUITE ===\n');
 
   // Test 1: SSRF Defense

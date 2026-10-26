@@ -148,4 +148,47 @@ export class ReportingService {
       persistent_issues: persistentIssues
     };
   }
+
+  public static generatePdf(
+    scan: ScanEntity,
+    pages: ScannedPageEntity[],
+    issues: IssueEntity[]
+  ): Buffer {
+    const lines = [
+      `CROX Audit Report — ${scan.domain}`,
+      `Scan: ${scan.id}`,
+      `URL: ${scan.target_url}`,
+      `Health: ${scan.health_score}/100   Pages: ${scan.pages_crawled}   Generated: ${new Date().toISOString()}`,
+      '',
+      'Issues',
+      ...issues.slice(0, 40).map(issue => `- [${issue.severity}] ${issue.title} (${issue.affected_url})`),
+      '',
+      'Pages',
+      ...pages.slice(0, 40).map(page => `- ${page.status_code || '-'} ${page.url}  title: ${(page.title || '(missing)').slice(0, 80)}`)
+    ];
+    const escaped = lines.map(line => line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'));
+    const content = escaped.map((line, index) => `BT /F1 11 Tf 36 ${780 - index * 14} Td (${line.slice(0, 110)}) Tj ET`).join('\n');
+    const objects = [
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+      `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj`,
+      `4 0 obj << /Length ${Buffer.byteLength(content)} >> stream\n${content}\nendstream endobj`,
+      '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj'
+    ];
+    let offset = 9; // %PDF-1.4\n
+    const offsets = [0];
+    const bodyParts: string[] = [];
+    for (const obj of objects) {
+      offsets.push(offset);
+      bodyParts.push(obj);
+      offset += Buffer.byteLength(obj) + 1;
+    }
+    const xrefStart = offset;
+    let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let i = 1; i < offsets.length; i++) {
+      xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+    }
+    const trailer = `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+    return Buffer.from(`%PDF-1.4\n${bodyParts.join('\n')}\n${xref}${trailer}`);
+  }
 }

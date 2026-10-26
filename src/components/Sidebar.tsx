@@ -16,7 +16,8 @@ import {
   History,
   Telescope,
   Compass,
-  Wrench
+  Wrench,
+  ListChecks
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { RecentScanItem } from '../types';
@@ -45,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'site-audit', label: 'Site Audit', icon: Globe },
+    { id: 'audit-checklist', label: 'Audit Checklist', icon: ListChecks },
     { id: 'seo-analysis', label: 'SEO Analysis', icon: Search },
     { id: 'keyword-research', label: 'Keyword Research', icon: Telescope },
     { id: 'market-research', label: 'Market Research', icon: Compass },

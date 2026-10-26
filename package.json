@@ -1,14 +1,14 @@
 {
-  "name": "react-example",
+  "name": "crox-seo-intelligence",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "start": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "lint": "tsc --noEmit",
     "test:backend": "tsx src/backend/test.ts"
   },
@@ -27,7 +27,8 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "sql.js": "^1.13.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

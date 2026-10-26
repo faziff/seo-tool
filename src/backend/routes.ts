@@ -7,8 +7,15 @@ import { SEOAuditEngine } from './seo_audit.js';
 import { ScoringEngine } from './scoring.js';
 import { ReportingService } from './reporting.js';
 import { AIService } from './ai_service.js';
+import { platformRouter } from './platform_routes.js';
+import { AuthenticatedRequest, requireAuth } from './auth.js';
+import { consumeCredit } from './credits.js';
+import { buildPageChecklist } from './page_checklist.js';
+import { dataForSeoConfigured } from './keywordProvider.js';
+import { agentConfigured } from './agent.js';
 
 export const apiRouter = express.Router();
+apiRouter.use(platformRouter);
 
 // Active crawler instances for cancellation
 const activeCrawlers = new Map<string, WebsiteCrawler>();
@@ -23,17 +30,20 @@ apiRouter.get('/health', (_req, res) => {
     service: 'CROX SEO Platform Engine',
     version: '2.4.0',
     uptime_seconds: Math.round(process.uptime()),
-    gemini_ai_configured: !!process.env.GEMINI_API_KEY
+    gemini_ai_configured: !!process.env.GEMINI_API_KEY,
+    dataforseo_configured: dataForSeoConfigured(),
+    agent_configured: agentConfigured()
   });
 });
-
-// Authentication routes are intentionally omitted in this dashboard-only build.
-// Add your preferred account system before enabling public multi-user access.
 
 // ==========================================
 // 3. SCAN & CRAWLER ENDPOINTS
 // ==========================================
-apiRouter.post('/scans', async (req, res) => {
+apiRouter.post('/scans', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'audit');
+  if (!credit.ok) {
+    return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
+  }
   const { url, max_pages } = req.body;
 
   if (!url) {
@@ -60,7 +70,7 @@ apiRouter.post('/scans', async (req, res) => {
 
   const scanEntity: ScanEntity = {
     id: scanId,
-    user_id: null,
+    user_id: req.user!.id,
     target_url: targetUrl,
     domain,
     status: 'pending',
@@ -134,7 +144,17 @@ apiRouter.post('/scans', async (req, res) => {
           word_count: p.wordCount,
           is_indexable: p.isIndexable,
           internal_links_count: p.internalLinks.length,
-          external_links_count: p.externalLinks.length
+          external_links_count: p.externalLinks.length,
+          extra: {
+            h1: p.h1List,
+            og_title: p.ogTitle,
+            og_description: p.ogDescription,
+            og_image: p.ogImage,
+            https: p.url.startsWith('https://'),
+            schema_blocks: (p.jsonLdList || []).length,
+            missing_alt: (p.images || []).filter(img => !img.hasAlt).length
+          },
+          checklist: buildPageChecklist(p)
         });
       }
 
@@ -188,10 +208,10 @@ apiRouter.post('/scans', async (req, res) => {
     });
 });
 
-apiRouter.get('/scans', (req, res) => {
+apiRouter.get('/scans', requireAuth, (req: AuthenticatedRequest, res) => {
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(100, Math.floor(requestedLimit)) : 15;
-  const scans = db.listScans(null, limit);
+  const scans = db.listScans(req.user!.id, limit);
 
   const formatted = scans.map(s => ({
     id: s.id,
@@ -207,9 +227,13 @@ apiRouter.get('/scans', (req, res) => {
   res.json(formatted);
 });
 
-apiRouter.get('/scans/:id', (req, res) => {
+function assertScanOwner(scan: ReturnType<typeof db.getScan>, userId: number) {
+  return scan && scan.user_id === userId;
+}
+
+apiRouter.get('/scans/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const scan = db.getScan(req.params.id);
-  if (!scan) {
+  if (!assertScanOwner(scan, req.user!.id)) {
     return res.status(404).json({ detail: 'Scan not found.' });
   }
 
@@ -230,9 +254,9 @@ apiRouter.get('/scans/:id', (req, res) => {
   });
 });
 
-apiRouter.get('/scans/:id/report', (req, res) => {
+apiRouter.get('/scans/:id/report', requireAuth, (req: AuthenticatedRequest, res) => {
   const scan = db.getScan(req.params.id);
-  if (!scan) {
+  if (!assertScanOwner(scan, req.user!.id)) {
     return res.status(404).json({ detail: 'Scan not found.' });
   }
 
@@ -280,7 +304,9 @@ apiRouter.get('/scans/:id/report', (req, res) => {
       canonical_url: p.canonical_url,
       h1_count: p.h1_count,
       word_count: p.word_count,
-      is_indexable: p.is_indexable
+      is_indexable: p.is_indexable,
+      extra: p.extra,
+      checklist: p.checklist
     })),
     passed_checks: [
       'Title Tag Presence',
@@ -300,7 +326,7 @@ apiRouter.get('/scans/:id/report', (req, res) => {
   res.json(report);
 });
 
-apiRouter.delete('/scans/:id', (req, res) => {
+apiRouter.delete('/scans/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const scanId = req.params.id;
 
   // Cancel if actively running
@@ -309,7 +335,7 @@ apiRouter.delete('/scans/:id', (req, res) => {
     activeCrawlers.delete(scanId);
   }
 
-  const deleted = db.deleteScan(scanId);
+  const deleted = db.deleteScan(scanId, req.user!.id);
   if (!deleted) {
     return res.status(404).json({ detail: 'Scan not found or permission denied.' });
   }
@@ -317,9 +343,9 @@ apiRouter.delete('/scans/:id', (req, res) => {
   res.json({ status: 'success', message: 'Scan deleted successfully.' });
 });
 
-apiRouter.get('/scans/:id/export/csv', (req, res) => {
+apiRouter.get('/scans/:id/export/csv', requireAuth, (req: AuthenticatedRequest, res) => {
   const scan = db.getScan(req.params.id);
-  if (!scan) {
+  if (!assertScanOwner(scan, req.user!.id)) {
     return res.status(404).json({ detail: 'Scan not found.' });
   }
 
@@ -333,7 +359,20 @@ apiRouter.get('/scans/:id/export/csv', (req, res) => {
   res.send(csv);
 });
 
-apiRouter.post('/scans/compare', (req, res) => {
+apiRouter.get('/scans/:id/export/pdf', requireAuth, (req: AuthenticatedRequest, res) => {
+  const scan = db.getScan(req.params.id);
+  if (!assertScanOwner(scan, req.user!.id)) {
+    return res.status(404).json({ detail: 'Scan not found.' });
+  }
+  const pages = db.getPagesForScan(scan!.id);
+  const issues = db.getIssuesForScan(scan!.id);
+  const pdf = ReportingService.generatePdf(scan!, pages, issues);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="crox-audit-${scan!.domain}-${scan!.id}.pdf"`);
+  res.send(pdf);
+});
+
+apiRouter.post('/scans/compare', requireAuth, (req: AuthenticatedRequest, res) => {
   const { base_scan_id, compare_scan_id } = req.body;
 
   if (!base_scan_id || !compare_scan_id) {
@@ -343,7 +382,7 @@ apiRouter.post('/scans/compare', (req, res) => {
   const baseScan = db.getScan(base_scan_id);
   const compareScan = db.getScan(compare_scan_id);
 
-  if (!baseScan || !compareScan) {
+  if (!assertScanOwner(baseScan, req.user!.id) || !assertScanOwner(compareScan, req.user!.id)) {
     return res.status(404).json({ detail: 'One or both scans could not be found for comparison.' });
   }
 
@@ -357,7 +396,7 @@ apiRouter.post('/scans/compare', (req, res) => {
 // ==========================================
 // 4. ISSUES & REMEDIATION
 // ==========================================
-apiRouter.patch('/issues/:id', (req, res) => {
+apiRouter.patch('/issues/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const { resolved } = req.body;
   const updated = db.updateIssue(req.params.id, { resolved: !!resolved });
   if (!updated) {
@@ -366,7 +405,9 @@ apiRouter.patch('/issues/:id', (req, res) => {
   res.json(updated);
 });
 
-apiRouter.post('/ai/fix', async (req, res) => {
+apiRouter.post('/ai/fix', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'ai');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const { title, category, affected_url, evidence, explanation } = req.body;
   const fix = await AIService.generateFix({
     title: title || 'SEO Optimization',
@@ -388,14 +429,16 @@ apiRouter.post('/ai/fix', async (req, res) => {
 // ==========================================
 // 4A. FIX CENTER — persistent AI-assisted drafts
 // ==========================================
-apiRouter.get('/fixes', (req, res) => {
+apiRouter.get('/fixes', requireAuth, (req: AuthenticatedRequest, res) => {
   const scanId = String(req.query.scan_id || '').trim();
   if (!scanId) return res.status(400).json({ detail: 'scan_id is required.' });
   if (!db.getScan(scanId)) return res.status(404).json({ detail: 'Scan not found.' });
   res.json(db.getFixesForScan(scanId));
 });
 
-apiRouter.post('/fixes/generate', async (req, res) => {
+apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'ai');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const scanId = typeof req.body?.scan_id === 'string' ? req.body.scan_id.trim() : '';
   if (!scanId) return res.status(400).json({ detail: 'Select a completed scan before generating fixes.' });
   const scan = db.getScan(scanId);
@@ -474,7 +517,7 @@ apiRouter.post('/fixes/generate', async (req, res) => {
   });
 });
 
-apiRouter.patch('/fixes/:id', (req, res) => {
+apiRouter.patch('/fixes/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const updates: { status?: 'draft' | 'approved' | 'rejected'; code_snippet?: string; fix_explanation?: string } = {};
   if (req.body?.status !== undefined) {
     if (!['draft', 'approved', 'rejected'].includes(req.body.status)) {
@@ -500,7 +543,9 @@ apiRouter.patch('/fixes/:id', (req, res) => {
   res.json(updated);
 });
 
-apiRouter.post('/ai/chat', async (req, res) => {
+apiRouter.post('/ai/chat', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'ai');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const { message, scan_id } = req.body;
 
   if (!message) {
@@ -532,7 +577,9 @@ apiRouter.post('/ai/chat', async (req, res) => {
 // ==========================================
 // 5. KEYWORD & COMPETITOR INTELLIGENCE
 // ==========================================
-apiRouter.post('/market/brief', async (req, res) => {
+apiRouter.post('/market/brief', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'ai');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const { niche, market, goal } = req.body;
   if (!niche || typeof niche !== 'string' || !niche.trim()) {
     return res.status(400).json({ detail: 'Enter a niche or market topic.' });
@@ -544,7 +591,9 @@ apiRouter.post('/market/brief', async (req, res) => {
   );
   res.json(result);
 });
-apiRouter.post('/keywords/analyze', async (req, res) => {
+apiRouter.post('/keywords/analyze', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const credit = consumeCredit(req.user!, 'keyword');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const { seed_phrase, niche, market } = req.body;
   if (!seed_phrase || typeof seed_phrase !== 'string' || !seed_phrase.trim()) {
     return res.status(400).json({ detail: 'Enter a seed keyword or topic.' });
@@ -669,7 +718,7 @@ async function inspectPublicHomepage(rawDomain: string) {
   }
 }
 
-apiRouter.post('/competitor/compare', async (req, res) => {
+apiRouter.post('/competitor/compare', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { target_domain, competitor_domain } = req.body;
   if (!target_domain || !competitor_domain) {
     return res.status(400).json({ detail: 'Enter both your domain and a competitor domain.' });
@@ -717,7 +766,7 @@ apiRouter.post('/competitor/compare', async (req, res) => {
 // ==========================================
 // 6. PERFORMANCE & INTEGRATIONS
 // ==========================================
-apiRouter.get('/pagespeed', async (req, res) => {
+apiRouter.get('/pagespeed', requireAuth, async (req: AuthenticatedRequest, res) => {
   const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
   const rawStrategy = typeof req.query.strategy === 'string' ? req.query.strategy : 'mobile';
   const strategy = rawStrategy.toLowerCase();
@@ -780,12 +829,14 @@ apiRouter.get('/pagespeed', async (req, res) => {
   }
 });
 
-apiRouter.get('/integrations/status', (_req, res) => {
+apiRouter.get('/integrations/status', requireAuth, (_req, res) => {
   const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
   const pageSpeedConfigured = Boolean(process.env.PAGESPEED_API_KEY);
   res.json({
     gemini: { configured: geminiConfigured, model: 'gemini-2.5-flash' },
     pagespeed: { configured: pageSpeedConfigured },
+    dataforseo: { configured: dataForSeoConfigured() },
+    agent: { configured: agentConfigured() },
     gemini_ai: {
       status: geminiConfigured ? 'connected' : 'disconnected',
       description: 'Google Gemini 2.5 Flash for NOVA assistant and AI-assisted fix drafts.'

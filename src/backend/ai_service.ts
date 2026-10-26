@@ -1,5 +1,23 @@
 import { GoogleGenAI } from '@google/genai';
 import { KeywordIntelligenceService, KeywordResult } from './keywords.js';
+import { agentConfigured, callExternalAgent } from './agent.js';
+
+export type AiErrorCode = 'missing_key' | 'quota' | 'network' | 'empty' | 'agent';
+
+function classifyGeminiError(err: any): { code: AiErrorCode; message: string } {
+  const raw = String(err?.message || err || '');
+  const lower = raw.toLowerCase();
+  if (/quota|resource.?exhausted|429|rate.?limit/i.test(lower)) {
+    return { code: 'quota', message: 'Gemini quota or rate limit was reached. Try again later or check the key’s billing limits.' };
+  }
+  if (/fetch|network|enotfound|econn|timeout|abort/i.test(lower)) {
+    return { code: 'network', message: 'CROX could not reach Gemini. Check outbound network access from the server.' };
+  }
+  if (/api.?key|permission|401|403|invalid/i.test(lower)) {
+    return { code: 'missing_key', message: 'GEMINI_API_KEY is missing or rejected. Add a valid key in the hosting environment.' };
+  }
+  return { code: 'network', message: raw.slice(0, 240) || 'Gemini request failed.' };
+}
 
 export class AIService {
   /**
@@ -157,8 +175,33 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
       healthScore?: number;
       issues?: Array<{ title: string; category: string; severity: string; evidence: string }>;
     }
-  ): Promise<{ reply: string; suggestions: string[] }> {
+  ): Promise<{ reply: string; suggestions: string[]; error_code?: AiErrorCode; error_message?: string }> {
+    if (agentConfigured()) {
+      const agent = await callExternalAgent({ message, context: scanContext as Record<string, unknown> });
+      if (agent.used && agent.reply) {
+        return {
+          reply: agent.reply,
+          suggestions: ['Summarize the top three SEO fixes', 'Draft a meta description', 'Suggest content angles']
+        };
+      }
+      if (agent.used && agent.error) {
+        return this.answerQuestionLocal(message, scanContext, { code: 'agent', message: agent.error });
+      }
+    }
+    return this.answerQuestionLocal(message, scanContext);
+  }
+
+  private static async answerQuestionLocal(
+    message: string,
+    scanContext?: {
+      domain?: string;
+      healthScore?: number;
+      issues?: Array<{ title: string; category: string; severity: string; evidence: string }>;
+    },
+    priorError?: { code: AiErrorCode; message: string }
+  ): Promise<{ reply: string; suggestions: string[]; error_code?: AiErrorCode; error_message?: string }> {
     const ai = this.getClient();
+    const missingKey = !process.env.GEMINI_API_KEY;
 
     let systemPrompt = `You are NOVA, CROX's elite technical SEO advisor and web performance consultant.
 Your role is to help users understand crawl findings, fix indexation blockers, write semantic schema markup, and optimize their websites.
@@ -180,18 +223,29 @@ Never invent metrics. Explain clearly how search crawlers interpret technical is
           ]
         });
 
-        const reply = response.text || 'I analyzed your request. Please inspect your scan findings for more context.';
-        return {
-          reply,
-          suggestions: [
-            'How do I fix missing H1 tags without breaking styling?',
-            'Generate Schema.org WebSite JSON-LD markup',
-            'What is the quickest way to improve my TTFB?'
-          ]
-        };
+        const reply = (response.text || '').trim();
+        if (reply) {
+          return {
+            reply: priorError ? `${priorError.message}\n\n${reply}` : reply,
+            suggestions: [
+              'How do I fix missing H1 tags without breaking styling?',
+              'Generate Schema.org WebSite JSON-LD markup',
+              'What is the quickest way to improve my TTFB?'
+            ],
+            error_code: priorError?.code,
+            error_message: priorError?.message
+          };
+        }
+        priorError = priorError || { code: 'empty', message: 'Gemini returned an empty answer. Showing CROX guidance instead.' };
       } catch (err: any) {
         console.warn('[CROX AI] Gemini API call error:', err.message);
+        priorError = priorError || classifyGeminiError(err);
       }
+    } else if (!priorError && missingKey) {
+      priorError = {
+        code: 'missing_key',
+        message: 'GEMINI_API_KEY is not set on the server. NOVA is using built-in CROX guidance until you add the key in your hosting panel.'
+      };
     }
 
     // Deterministic fallback if Gemini API key is not configured or fails
@@ -246,13 +300,16 @@ Add this script directly into the \`<head>\` of your homepage:
       reply = `Based on your audit report for **${scanContext?.domain || 'your website'}**, we recommend prioritizing Critical issues first (such as broken links, missing title tags, or insecure protocols). Fixing Critical issues yields the highest health score improvement and restores crawl budget.`;
     }
 
+    const notice = priorError?.message ? `${priorError.message}\n\n` : '';
     return {
-      reply,
+      reply: `${notice}${reply}`,
       suggestions: [
         'How do I fix missing H1 tags?',
         'Generate Schema.org WebSite JSON-LD markup',
         'How do I optimize title tag lengths?'
-      ]
+      ],
+      error_code: priorError?.code,
+      error_message: priorError?.message
     };
   }
 

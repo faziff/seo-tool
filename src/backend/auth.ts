@@ -1,13 +1,19 @@
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
 import { db, UserEntity } from './db.js';
 
-const configuredJwtSecret = process.env.JWT_SECRET;
-if (process.env.NODE_ENV === 'production' && (!configuredJwtSecret || configuredJwtSecret.length < 32 || configuredJwtSecret.toLowerCase().includes('change_me'))) {
+const configuredJwtSecret = (process.env.JWT_SECRET || '').trim();
+if (process.env.NODE_ENV === 'production' && (configuredJwtSecret.length < 32 || configuredJwtSecret.toLowerCase().includes('change_me'))) {
   throw new Error('Set JWT_SECRET to a unique random value of at least 32 characters before running CROX in production.');
 }
-const JWT_SECRET = configuredJwtSecret || 'crox-local-development-secret-do-not-use-in-production';
+// Avoid a known hard-coded fallback. When unset locally, sessions are intentionally
+// ephemeral; set JWT_SECRET in .env if local sessions should survive restarts.
+const JWT_SECRET = configuredJwtSecret || randomBytes(48).toString('hex');
+if (!configuredJwtSecret && process.env.NODE_ENV !== 'production') {
+  console.warn('[CROX Auth] JWT_SECRET is unset; using a temporary development secret. Sessions will expire after a server restart.');
+}
 const TOKEN_EXPIRY = '7d';
 
 export interface AuthTokenPayload {
@@ -67,6 +73,22 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 
   req.user = user;
   next();
+}
+
+export function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const admin = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (!admin) {
+    return res.status(403).json({ detail: 'ADMIN_EMAIL is not configured on the server.' });
+  }
+  if (!req.user || req.user.email.toLowerCase() !== admin) {
+    return res.status(403).json({ detail: 'Admin access required.' });
+  }
+  next();
+}
+
+export function clientIp(req: Request): string {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket.remoteAddress || 'unknown';
 }
 
 export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {

@@ -12,6 +12,10 @@ import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { CompareScansModal } from './components/CompareScansModal';
 import { FixCenterPage } from './pages/FixCenterPage';
 import { NovaOrb } from './components/NovaOrb';
+import { BrandMark } from './components/BrandMark';
+import { LandingPage } from './components/LandingPage';
+import { AuthPage } from './components/AuthPage';
+import { AuditChecklistPage } from './pages/AuditChecklistPage';
 
 import { SiteAuditPage } from './pages/SiteAuditPage';
 import { SEOAnalysisPage } from './pages/SEOAnalysisPage';
@@ -28,12 +32,21 @@ import {
   getScanStatus,
   getScanReport,
   listRecentScans,
-  removeStoredToken,
+  fetchCurrentUser,
+  fetchCreditSnapshot,
+  logoutUser,
 } from './services/api';
-import { ScanReport, ScanProgress, RecentScanItem, Issue } from './types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue, User, CreditSnapshot } from './types';
 import { Globe, ArrowRight, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
+  const [pagePath, setPagePath] = useState<string>(() => window.location.pathname || '/');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [credits, setCredits] = useState<CreditSnapshot | null>(null);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try { return localStorage.getItem('crox_theme') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; }
+  });
   const [currentTab, setCurrentTab] = useState<string>('overview');
   const [report, setReport] = useState<ScanReport | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -50,16 +63,69 @@ export default function App() {
   // Reference for polling cleanup
   const pollIntervalRef = useRef<any>(null);
 
-  // Dashboard-only workspace: load shared local scan history without an account gate.
+  const navigate = (path: string, replace = false) => {
+    if (window.location.pathname !== path) {
+      if (replace) window.history.replaceState({}, '', path);
+      else window.history.pushState({}, '', path);
+    }
+    setPagePath(path);
+  };
+
+  const refreshCredits = async () => {
+    try { setCredits(await fetchCreditSnapshot()); }
+    catch { setCredits(null); }
+  };
+
+  // Restore the signed-in workspace on reload. Private dashboard routes stay behind auth.
   useEffect(() => {
-    // Clear an old token from the previous login-enabled build so this workspace
-    // always boots in the requested dashboard-only mode.
-    removeStoredToken();
-    loadUserScans();
+    let active = true;
+    const onPopState = () => setPagePath(window.location.pathname || '/');
+    window.addEventListener('popstate', onPopState);
+    document.documentElement.dataset.theme = theme;
+    fetchCurrentUser().then(async (user) => {
+      if (!active) return;
+      setCurrentUser(user);
+      setAuthReady(true);
+      const requestedPath = window.location.pathname || '/';
+      if (user) {
+        if (requestedPath === '/' || requestedPath === '/login' || requestedPath === '/signup' || requestedPath === '/register') {
+          window.history.replaceState({}, '', '/app');
+          setPagePath('/app');
+        }
+        void loadUserScans();
+        void refreshCredits();
+      } else {
+        setCredits(null);
+        if (requestedPath === '/app' || requestedPath.startsWith('/app/')) {
+          window.history.replaceState({}, '', '/login');
+          setPagePath('/login');
+        }
+      }
+    }).catch(() => {
+      if (active) setAuthReady(true);
+    });
     return () => {
+      active = false;
+      window.removeEventListener('popstate', onPopState);
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('crox_theme', theme); } catch { /* storage can be unavailable in private browsing */ }
+  }, [theme]);
+
+  useEffect(() => {
+    const onCreditRefresh = () => { if (currentUser) void refreshCredits(); };
+    window.addEventListener('crox:credits-refresh', onCreditRefresh);
+    return () => window.removeEventListener('crox:credits-refresh', onCreditRefresh);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (authReady && !currentUser && (pagePath === '/app' || pagePath.startsWith('/app/'))) navigate('/login', true);
+    if (authReady && currentUser && (pagePath === '/' || pagePath === '/login' || pagePath === '/signup' || pagePath === '/register')) navigate('/app', true);
+  }, [authReady, currentUser, pagePath]);
 
   useEffect(() => {
     const handleWorkspaceSearch = (event: Event) => {
@@ -80,7 +146,8 @@ export default function App() {
         { terms: ['report', 'export'], tab: 'reports' },
         { terms: ['setting', 'integration', 'api key'], tab: 'settings' },
         { terms: ['seo', 'metadata', 'title tag'], tab: 'seo-analysis' },
-        { terms: ['site audit', 'crawl', 'pages'], tab: 'site-audit' }
+        { terms: ['site audit', 'crawl', 'pages'], tab: 'site-audit' },
+        { terms: ['checklist', 'page checks', 'on-page checks'], tab: 'audit-checklist' }
       ];
       const match = tools.find((tool) => tool.terms.some((term) => term.includes(query) || query.includes(term)));
       if (match) setCurrentTab(match.tab);
@@ -136,6 +203,7 @@ export default function App() {
 
     try {
       const initial = await startScan(url, 50);
+      window.dispatchEvent(new Event('crox:credits-refresh'));
       setScanProgress(initial);
 
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -155,6 +223,7 @@ export default function App() {
               const fullReport = await getScanReport(initial.scan_id);
               setReport(fullReport);
               setCurrentTab('overview');
+              window.dispatchEvent(new Event('crox:credits-refresh'));
 
               // Refresh user scans
               listRecentScans().then((scans) => {
@@ -204,6 +273,28 @@ export default function App() {
   };
 
 
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user);
+    setAuthReady(true);
+    setCredits(user.credits || null);
+    setCurrentTab('overview');
+    setReport(null);
+    setRecentScans([]);
+    navigate('/app', true);
+    void loadUserScans();
+    void refreshCredits();
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setCurrentUser(null);
+    setCredits(null);
+    setReport(null);
+    setRecentScans([]);
+    setCurrentTab('overview');
+    navigate('/login', true);
+  };
+
   // Render subpage empty state when no scan exists
   const renderEmptySubpage = (title: string, desc: string) => (
     <div className="bg-white rounded-3xl border border-slate-200/80 p-12 text-center max-w-xl mx-auto space-y-4 shadow-xs my-8">
@@ -222,8 +313,21 @@ export default function App() {
     </div>
   );
 
+  if (!authReady) {
+    return <div className="crox-loading-screen"><BrandMark size={46} /><span>Preparing your CROX workspace…</span></div>;
+  }
+
+  if (!currentUser) {
+    const initialMode = pagePath === '/signup' || pagePath === '/register' ? 'register' : 'login';
+    if (pagePath === '/login' || pagePath === '/signup' || pagePath === '/register') {
+      return <AuthPage key={pagePath} initialMode={initialMode} onSuccess={handleAuthSuccess} onModeChange={mode => navigate(mode === 'register' ? '/signup' : '/login', true)} />;
+    }
+    return <LandingPage onSignIn={() => navigate('/login')} onSignUp={() => navigate('/signup')} />;
+  }
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col antialiased font-sans">
+    <div className={`crox-theme-root crox-theme-${theme} min-h-screen bg-[#F8FAFC] flex flex-col antialiased font-sans`} data-theme={theme}>
+
       <div className="flex-1 flex w-full">
         {/* Left Sidebar Navigation Rail */}
         <Sidebar
@@ -244,6 +348,11 @@ export default function App() {
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             onOpenAI={() => setIsAIOpen(true)}
             onOpenSettings={() => setCurrentTab('settings')}
+            onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
+            onLogout={handleLogout}
+            theme={theme}
+            userName={currentUser.name}
+            credits={credits}
           />
 
           {/* Viewport Content */}
@@ -337,6 +446,13 @@ export default function App() {
                   'No Crawled Pages Available',
                   'Run an audit on your website domain to inspect HTTP status codes, canonical URLs, and indexability.'
                 )
+              )
+            )}
+
+            {currentTab === 'audit-checklist' && (
+              report ? <AuditChecklistPage report={report} /> : renderEmptySubpage(
+                'Run a scan to build your checklist',
+                'CROX creates page-level checks for titles, descriptions, headings, canonical URLs, alt text, structured data, social tags and HTTPS.'
               )
             )}
 

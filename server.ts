@@ -4,6 +4,7 @@ import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { apiRouter } from './src/backend/routes.js';
+import { initDb } from './src/backend/db.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -22,6 +23,7 @@ app.use('/api', (_req, res) => {
 });
 
 async function startServer() {
+  await initDb();
   if (!isProduction) {
     // Development mode: attach Vite middleware
     const vite = await createViteServer({

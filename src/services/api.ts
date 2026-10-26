@@ -1,4 +1,4 @@
-import { ScanReport, ScanProgress, RecentScanItem, Issue, User, FixDraft } from '../types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue, User, FixDraft, CreditSnapshot } from '../types';
 
 const TOKEN_KEY = 'crox_auth_token';
 
@@ -25,9 +25,11 @@ export function removeStoredToken() {
 }
 
 function getAuthHeaders(): HeadersInit {
-  // Dashboard-only build: API calls intentionally run in guest/workspace mode.
-  // Ignore stale browser tokens so they cannot unexpectedly scope scan history.
-  return { 'Content-Type': 'application/json' };
+  const token = getStoredToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
 }
 
 // ==========================================
@@ -115,6 +117,13 @@ export async function fetchCurrentUser(): Promise<User | null> {
   } catch {
     return null;
   }
+}
+
+export async function fetchCreditSnapshot(): Promise<CreditSnapshot> {
+  const res = await fetch('/api/credits', { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || 'Could not load usage credits.');
+  return data as CreditSnapshot;
 }
 
 export async function logoutUser(): Promise<void> {
@@ -215,7 +224,10 @@ export async function generateAIFix(issue: Issue): Promise<any> {
       explanation: issue.explanation
     })
   });
-  return res.json();
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(readApiError(payload, 'Could not generate this AI fix.'));
+  window.dispatchEvent(new Event('crox:credits-refresh'));
+  return payload;
 }
 
 function readApiError(payload: any, fallback: string): string {
@@ -239,6 +251,7 @@ export async function generateFixDrafts(scanId: string, maxItems = 15): Promise<
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok) throw new Error(readApiError(payload, 'Could not generate fix drafts.'));
+  window.dispatchEvent(new Event('crox:credits-refresh'));
   return payload;
 }
 
@@ -260,9 +273,12 @@ export async function askCROXAI(message: string, scanId?: string): Promise<{ rep
     body: JSON.stringify({ message, scan_id: scanId })
   });
   if (!res.ok) {
-    throw new Error('Failed to communicate with NOVA AI');
+    const payload = await res.json().catch(() => null);
+    throw new Error(readApiError(payload, 'Failed to communicate with NOVA AI'));
   }
-  return res.json();
+  const payload = await res.json();
+  window.dispatchEvent(new Event('crox:credits-refresh'));
+  return payload;
 }
 
 export async function fetchPageSpeed(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<any> {
@@ -334,6 +350,7 @@ export async function analyzeKeywords(seedPhrase: string, niche: string, market:
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || 'Keyword research could not be completed.');
+  window.dispatchEvent(new Event('crox:credits-refresh'));
   return data;
 }
 
@@ -397,5 +414,6 @@ export async function generateMarketBrief(niche: string, market: string, goal: s
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || 'Market brief could not be generated.');
+  window.dispatchEvent(new Event('crox:credits-refresh'));
   return data;
 }

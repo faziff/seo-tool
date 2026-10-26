@@ -10,6 +10,7 @@ import { BrandMark } from './BrandMark';
 interface AuthPageProps {
   onSuccess: (user: User) => void;
   initialMode?: 'login' | 'register';
+  onModeChange?: (mode: 'login' | 'register') => void;
 }
 
 const features = [
@@ -18,7 +19,7 @@ const features = [
   { icon: Sparkles, title: 'NOVA AI copilot', text: 'Get guidance, drafts, and practical fixes.' },
 ];
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialMode = 'login' }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialMode = 'login', onModeChange }) => {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -40,6 +41,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialMode = 'lo
   const changeMode = (nextMode: 'login' | 'register') => {
     setMode(nextMode);
     setError('');
+    onModeChange?.(nextMode);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
