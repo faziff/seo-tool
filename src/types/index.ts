@@ -19,6 +19,17 @@ export interface CreditSnapshot {
   header_label: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  domain: string;
+  target_url: string;
+  country: string;
+  created_at: string;
+  updated_at: string;
+  already_exists?: boolean;
+}
+
 export interface User {
   id: number;
   name: string;
@@ -163,7 +174,7 @@ export interface FixDraft {
   fix_explanation: string;
   code_snippet: string;
   status: FixStatus;
-  generated_by: 'gemini' | 'fallback';
+  generated_by: 'gemini' | 'hermes' | 'openrouter' | 'groq' | 'fallback';
   created_at: string;
   updated_at: string;
 }

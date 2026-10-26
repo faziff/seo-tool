@@ -1,36 +1,36 @@
-import { GoogleGenAI } from '@google/genai';
+import { generateAIText, getAIProviderStatus, type AIProviderName } from './ai_provider.js';
 import { KeywordIntelligenceService, KeywordResult } from './keywords.js';
 import { agentConfigured, callExternalAgent } from './agent.js';
 
 export type AiErrorCode = 'missing_key' | 'quota' | 'network' | 'empty' | 'agent';
 
-function classifyGeminiError(err: any): { code: AiErrorCode; message: string } {
+function classifyProviderError(err: any): { code: AiErrorCode; message: string } {
   const raw = String(err?.message || err || '');
   const lower = raw.toLowerCase();
   if (/quota|resource.?exhausted|429|rate.?limit/i.test(lower)) {
-    return { code: 'quota', message: 'Gemini quota or rate limit was reached. Try again later or check the key’s billing limits.' };
+    return { code: 'quota', message: 'The configured AI provider reached its quota or rate limit. Try again later or check the provider billing limits.' };
   }
   if (/fetch|network|enotfound|econn|timeout|abort/i.test(lower)) {
-    return { code: 'network', message: 'CROX could not reach Gemini. Check outbound network access from the server.' };
+    return { code: 'network', message: 'CROX could not reach the configured AI provider. Check outbound network access from the server.' };
   }
   if (/api.?key|permission|401|403|invalid/i.test(lower)) {
-    return { code: 'missing_key', message: 'GEMINI_API_KEY is missing or rejected. Add a valid key in the hosting environment.' };
+    return { code: 'missing_key', message: 'The configured AI provider key is missing or rejected. Check its server environment setting.' };
   }
-  return { code: 'network', message: raw.slice(0, 240) || 'Gemini request failed.' };
+  return { code: 'network', message: raw.slice(0, 240) || 'AI provider request failed.' };
 }
 
 export class AIService {
   /**
-   * Generate keyword ideas using Gemini when configured. Without a provider key,
+   * Generate keyword ideas through the configured AI provider when available. Without a provider key,
    * fall back to transparent seed expansions rather than fabricating live metrics.
    */
   public static async generateKeywordStrategy(
     seedPhrase: string,
     niche = 'General',
     market = 'Global'
-  ): Promise<{ keywords: KeywordResult[]; ai_mode: 'gemini' | 'heuristic'; provider_status: string }> {
-    const ai = this.getClient();
-    if (ai) {
+  ): Promise<{ keywords: KeywordResult[]; ai_mode: AIProviderName | 'heuristic'; provider_status: string }> {
+    const ai = getAIProviderStatus();
+    if (ai.configured) {
       try {
         const prompt = `You are NOVA, a careful SEO keyword strategist working inside CROX. Create 16 useful keyword ideas for the business.
 Seed topic: ${seedPhrase}
@@ -39,10 +39,7 @@ Target market: ${market}
 
 Return only valid JSON with this shape: {"keywords":[{"keyword":"...","intent":"Informational|Commercial|Transactional|Navigational","difficulty_score":35,"cluster":"..."}]}
 Rules: cover informational, comparison, purchase, local (if relevant), and long-tail intent; avoid duplicate or nonsensical phrases; make ideas specific to the niche and market. difficulty_score is an ESTIMATE from 0 to 100, not measured SERP data. Do not include any search volume, CPC, rankings, traffic or claims of live search demand. Return 12-18 ideas.`;
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [{ role: 'user', parts: [{ text: prompt }] }]
-        });
+        const response = await generateAIText(prompt);
         const body = response.text || '';
         const match = body.match(/\{[\s\S]*\}/);
         if (match) {
@@ -71,8 +68,8 @@ Rules: cover informational, comparison, purchase, local (if relevant), and long-
           if (keywords.length) {
             return {
               keywords,
-              ai_mode: 'gemini',
-              provider_status: 'NOVA generated idea estimates with Gemini. Live search volume, CPC and SERP difficulty are not connected.'
+              ai_mode: response.provider,
+              provider_status: `NOVA generated idea estimates with ${response.provider}. Live search volume, CPC and SERP difficulty are not connected.`
             };
           }
         }
@@ -120,25 +117,19 @@ Rules: cover informational, comparison, purchase, local (if relevant), and long-
     return {
       keywords: mergedKeywords,
       ai_mode: 'heuristic',
-      provider_status: 'Context-aware keyword expansion is active. Configure GEMINI_API_KEY for NOVA-generated suggestions. Live search volume and CPC require a separate data provider.'
+      provider_status: 'Context-aware keyword expansion is active. Configure GEMINI_API_KEY, HERMES_API_KEY, OPENROUTER_API_KEY or GROQ_API_KEY for NOVA-generated suggestions. Live search volume and CPC require a separate data provider.'
     };
   }
-  private static getClient(): GoogleGenAI | null {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
-    return new GoogleGenAI({ apiKey });
-  }
-
   public static async generateMarketBrief(
     niche: string,
     market: string,
     goal: string
-  ): Promise<{ brief: string; ai_mode: 'gemini' | 'heuristic'; note: string }> {
+  ): Promise<{ brief: string; ai_mode: AIProviderName | 'heuristic'; note: string }> {
     const cleanNiche = niche.trim().slice(0, 180) || 'General business';
     const cleanMarket = market.trim().slice(0, 120) || 'Global';
     const cleanGoal = goal.trim().slice(0, 320) || 'Grow qualified organic traffic';
-    const ai = this.getClient();
-    if (ai) {
+    const ai = getAIProviderStatus();
+    if (ai.configured) {
       try {
         const prompt = `You are NOVA, CROX's practical market and organic-search research strategist.
 Create a concise directional market brief for:
@@ -147,15 +138,12 @@ Target location / audience: ${cleanMarket}
 Business goal: ${cleanGoal}
 
 Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clusters, (3) competitor positioning questions, (4) a practical content/landing-page plan, (5) a 30-day validation checklist. Use short headings and bullets. Clearly distinguish hypotheses from verified facts. You have not been given live SERP, trend, traffic, volume, CPC, survey, or competitor data; do not invent market sizes, rankings, traffic or volumes and do not claim live research was performed. Make the brief useful and actionable.`;
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [{ role: 'user', parts: [{ text: prompt }] }]
-        });
+        const response = await generateAIText(prompt);
         const brief = response.text?.trim();
         if (brief) return {
           brief,
-          ai_mode: 'gemini',
-          note: 'AI-generated strategy brief. It is not live market data; validate hypotheses against actual SERPs, customer research and connected analytics.'
+          ai_mode: response.provider,
+          note: `AI-generated strategy brief via ${response.provider}. It is not live market data; validate hypotheses against actual SERPs, customer research and connected analytics.`
         };
       } catch (err: any) {
         console.warn('[CROX AI] Market brief request failed:', err?.message || 'unknown error');
@@ -163,7 +151,7 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
     }
     return {
       ai_mode: 'heuristic',
-      note: 'Starter brief generated locally. Configure GEMINI_API_KEY for a personalized NOVA response. No live market metrics are claimed.',
+      note: 'Starter brief generated locally. Configure GEMINI_API_KEY, HERMES_API_KEY, OPENROUTER_API_KEY or GROQ_API_KEY for a personalized NOVA response. No live market metrics are claimed.',
       brief: `## Market starting point: ${cleanNiche}\n\n### Audience hypotheses\n- First-time buyers who need a clear explanation of the problem and available options.\n- Buyers comparing solutions, pricing, service levels and credibility.\n- Existing users looking for better workflows, alternatives or specialist help.\n\n### Search-intent clusters\n- Learn: beginner guides, how-to questions and definitions related to ${cleanNiche}.\n- Compare: best options, reviews, alternatives and versus pages.\n- Decide: pricing, packages, quotes, delivery or service-area details.\n- Trust: examples, case studies, FAQs, guarantees and credentials.\n- Localize: location-specific questions for ${cleanMarket}.\n\n### Competitor positioning questions\n- What promise appears above the fold on each competitor homepage?\n- Which audiences, use cases, proof points and FAQs do they emphasize?\n- Which customer questions are not clearly answered on your current pages?\n\n### Suggested 30-day validation plan\n1. Review 5-10 real search results for each high-priority intent and record the page types that rank.\n2. Speak with 3-5 target customers or review authentic support/sales questions.\n3. Publish one focused landing page and two supporting articles for the strongest problem cluster.\n4. Track impressions, clicks and conversions in Google Search Console and analytics, then revise based on evidence.\n\n**Goal to optimize for:** ${cleanGoal}. Treat these as starting hypotheses; verify demand and competition before committing budget.`
     };
   }
@@ -200,12 +188,13 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
     },
     priorError?: { code: AiErrorCode; message: string }
   ): Promise<{ reply: string; suggestions: string[]; error_code?: AiErrorCode; error_message?: string }> {
-    const ai = this.getClient();
-    const missingKey = !process.env.GEMINI_API_KEY;
+    const ai = getAIProviderStatus();
+    const missingKey = !ai.configured;
 
     let systemPrompt = `You are NOVA, CROX's elite technical SEO advisor and web performance consultant.
 Your role is to help users understand crawl findings, fix indexation blockers, write semantic schema markup, and optimize their websites.
 Keep advice concise, evidence-based, and actionable with exact code snippets where helpful.
+Reply in the language used by the user: English for English, Urdu script for Urdu, and Roman Urdu when the user writes Roman Urdu. Do not switch languages unnecessarily.
 Never invent metrics. Explain clearly how search crawlers interpret technical issues.`;
 
     if (scanContext && scanContext.domain) {
@@ -214,14 +203,9 @@ Never invent metrics. Explain clearly how search crawlers interpret technical is
 - Recent Issues: ${JSON.stringify(scanContext.issues?.slice(0, 5) || [])}`;
     }
 
-    if (ai) {
+    if (ai.configured) {
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            { role: 'user', parts: [{ text: `${systemPrompt}\n\nUser Question: ${message}` }] }
-          ]
-        });
+        const response = await generateAIText(`${systemPrompt}\n\nUser Question: ${message}`);
 
         const reply = (response.text || '').trim();
         if (reply) {
@@ -236,19 +220,19 @@ Never invent metrics. Explain clearly how search crawlers interpret technical is
             error_message: priorError?.message
           };
         }
-        priorError = priorError || { code: 'empty', message: 'Gemini returned an empty answer. Showing CROX guidance instead.' };
+        priorError = priorError || { code: 'empty', message: 'The configured AI provider returned an empty answer. Showing CROX guidance instead.' };
       } catch (err: any) {
-        console.warn('[CROX AI] Gemini API call error:', err.message);
-        priorError = priorError || classifyGeminiError(err);
+        console.warn('[CROX AI] Provider API call error:', err?.message || 'unknown error');
+        priorError = priorError || classifyProviderError(err);
       }
     } else if (!priorError && missingKey) {
       priorError = {
         code: 'missing_key',
-        message: 'GEMINI_API_KEY is not set on the server. NOVA is using built-in CROX guidance until you add the key in your hosting panel.'
+        message: 'No AI provider is configured on the server. NOVA is using built-in CROX guidance until you add provider credentials in your hosting panel.'
       };
     }
 
-    // Deterministic fallback if Gemini API key is not configured or fails
+    // Deterministic fallback if a live AI provider is not configured or fails
     const lower = message.toLowerCase();
     let reply = `Here is our technical recommendation for **${scanContext?.domain || 'your website'}**:`;
 
@@ -320,33 +304,12 @@ Add this script directly into the \`<head>\` of your homepage:
     evidence: string;
     explanation: string;
     recommendation?: string;
-  }): Promise<{ fix_explanation: string; code_snippet: string; provider: 'gemini' | 'fallback' }> {
-    const ai = this.getClient();
+  }): Promise<{ fix_explanation: string; code_snippet: string; provider: AIProviderName | 'fallback' }> {
+    const ai = getAIProviderStatus();
 
-    if (ai) {
+    if (ai.configured) {
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [{
-            role: 'user',
-            parts: [{ text: `You are NOVA, a careful senior technical SEO engineer inside CROX. Draft a safe, specific remediation for one audited website issue.
-
-Issue: ${issue.title}
-Category: ${issue.category}
-Affected URL: ${issue.affected_url}
-Observed evidence: ${issue.evidence}
-Audit explanation: ${issue.explanation}
-Existing recommendation: ${issue.recommendation || 'Not provided'}
-
-Return ONLY valid JSON with two string fields: "fix_explanation" and "code_snippet".
-Requirements:
-- Give a practical fix that directly matches the issue; do not invent the site's business, page subject, CMS, or content.
-- For metadata, provide a clearly marked template/example rather than pretending a placeholder is final copy.
-- Prefer HTML snippets for on-page metadata, and include implementation guidance when the fix requires server/configuration changes.
-- Never claim you changed the live website. Never include credentials, API keys, or destructive commands.
-- Keep the explanation concise but actionable. If the evidence is insufficient, state what the site owner must confirm. Return JSON only.` }]
-          }]
-        });
+        const response = await generateAIText(`You are NOVA, a careful senior technical SEO engineer inside CROX. Draft a safe, specific remediation for one audited website issue.\n\nIssue: ${issue.title}\nCategory: ${issue.category}\nAffected URL: ${issue.affected_url}\nObserved evidence: ${issue.evidence}\nAudit explanation: ${issue.explanation}\nExisting recommendation: ${issue.recommendation || 'Not provided'}\n\nReturn ONLY valid JSON with two string fields: \"fix_explanation\" and \"code_snippet\".\nRequirements:\n- Give a practical fix that directly matches the issue; do not invent the site's business, page subject, CMS, or content.\n- For metadata, provide a clearly marked template/example rather than pretending a placeholder is final copy.\n- Prefer HTML snippets for on-page metadata, and include implementation guidance when the fix requires server/configuration changes.\n- Never claim you changed the live website. Never include credentials, API keys, or destructive commands.\n- Keep the explanation concise but actionable. If the evidence is insufficient, state what the site owner must confirm. Return JSON only.`);
 
         const body = response.text || '';
         const match = body.match(/\{[\s\S]*\}/);
@@ -355,7 +318,7 @@ Requirements:
           const fixExplanation = typeof parsed.fix_explanation === 'string' ? parsed.fix_explanation.trim() : '';
           const codeSnippet = typeof parsed.code_snippet === 'string' ? parsed.code_snippet.trim() : '';
           if (fixExplanation && codeSnippet) {
-            return { fix_explanation: fixExplanation.slice(0, 6000), code_snippet: codeSnippet.slice(0, 12000), provider: 'gemini' };
+            return { fix_explanation: fixExplanation.slice(0, 6000), code_snippet: codeSnippet.slice(0, 12000), provider: response.provider };
           }
         }
       } catch (err: any) {

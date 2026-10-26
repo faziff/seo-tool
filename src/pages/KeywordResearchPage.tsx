@@ -15,7 +15,10 @@ function difficultyClass(label: string) {
 }
 
 export const KeywordResearchPage: React.FC = () => {
-  const [seed, setSeed] = useState('website audit tool');
+  const [seed, setSeed] = useState(() => {
+    try { const pending = sessionStorage.getItem('crox_keyword_seed'); if (pending) { sessionStorage.removeItem('crox_keyword_seed'); return pending.slice(0, 180); } } catch { /* storage can be unavailable in private browsing */ }
+    return 'website audit tool';
+  });
   const [niche, setNiche] = useState('SaaS & software');
   const [market, setMarket] = useState('United States / Global');
   const [intentFilter, setIntentFilter] = useState<IntentFilter>('All intents');

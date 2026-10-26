@@ -28,6 +28,35 @@ export interface WebsiteEntity {
   created_at: string;
 }
 
+export interface ProjectEntity {
+  id: string;
+  user_id: number;
+  name: string;
+  domain: string;
+  target_url: string;
+  country: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIConversationEntity {
+  id: string;
+  user_id: number;
+  project_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIMessageEntity {
+  id: number;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  provider: string | null;
+  created_at: string;
+}
+
 export interface ScanEntity {
   id: string;
   user_id: number | null;
@@ -117,7 +146,7 @@ export interface FixEntity {
   fix_explanation: string;
   code_snippet: string;
   status: FixStatus;
-  generated_by: 'gemini' | 'fallback';
+  generated_by: 'gemini' | 'hermes' | 'openrouter' | 'groq' | 'fallback';
   created_at: string;
   updated_at: string;
 }
@@ -186,6 +215,36 @@ CREATE TABLE IF NOT EXISTS websites (
   target_url TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  country TEXT NOT NULL DEFAULT 'PK',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(user_id, domain)
+);
+CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT 'New conversation',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_project ON ai_conversations(user_id, project_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
+  content TEXT NOT NULL,
+  provider TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id, id);
 CREATE TABLE IF NOT EXISTS scans (
   id TEXT PRIMARY KEY,
   user_id INTEGER,
@@ -534,6 +593,78 @@ class DatabaseStore {
     ]);
     this.save();
     return this.get('SELECT * FROM websites WHERE user_id = ? AND domain = ?', [userId, domain]) as WebsiteEntity;
+  }
+
+  public listProjects(userId: number): ProjectEntity[] {
+    return this.all('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC, created_at DESC', [userId]) as ProjectEntity[];
+  }
+
+  public getProject(id: string, userId: number): ProjectEntity | undefined {
+    return this.get('SELECT * FROM projects WHERE id = ? AND user_id = ?', [id, userId]) as ProjectEntity | undefined;
+  }
+
+  public findProjectByDomain(userId: number, domain: string): ProjectEntity | undefined {
+    return this.get('SELECT * FROM projects WHERE user_id = ? AND domain = ?', [userId, domain.toLowerCase()]) as ProjectEntity | undefined;
+  }
+
+  public createProject(project: ProjectEntity): ProjectEntity {
+    this.run(
+      'INSERT INTO projects (id, user_id, name, domain, target_url, country, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [project.id, project.user_id, project.name, project.domain.toLowerCase(), project.target_url, project.country, project.created_at, project.updated_at]
+    );
+    this.saveImmediately();
+    const created = this.getProject(project.id, project.user_id);
+    if (!created) throw new Error('Project could not be stored.');
+    return created;
+  }
+
+  public updateProject(id: string, userId: number, updates: Partial<Pick<ProjectEntity, 'name' | 'country' | 'target_url' | 'domain'>>): ProjectEntity | undefined {
+    const current = this.getProject(id, userId);
+    if (!current) return undefined;
+    const next = { ...current, ...updates, updated_at: new Date().toISOString() };
+    this.run(
+      'UPDATE projects SET name = ?, domain = ?, target_url = ?, country = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+      [next.name, next.domain.toLowerCase(), next.target_url, next.country, next.updated_at, id, userId]
+    );
+    this.saveImmediately();
+    return this.getProject(id, userId);
+  }
+
+  public deleteProject(id: string, userId: number): boolean {
+    const project = this.getProject(id, userId);
+    if (!project) return false;
+    this.run('DELETE FROM ai_messages WHERE conversation_id IN (SELECT id FROM ai_conversations WHERE project_id = ? AND user_id = ?)', [id, userId]);
+    this.run('DELETE FROM ai_conversations WHERE project_id = ? AND user_id = ?', [id, userId]);
+    this.run('DELETE FROM projects WHERE id = ? AND user_id = ?', [id, userId]);
+    this.saveImmediately();
+    return true;
+  }
+
+  public listAIConversations(userId: number, projectId: string): AIConversationEntity[] {
+    return this.all('SELECT * FROM ai_conversations WHERE user_id = ? AND project_id = ? ORDER BY updated_at DESC', [userId, projectId]) as AIConversationEntity[];
+  }
+
+  public createAIConversation(conversation: AIConversationEntity): AIConversationEntity {
+    this.run(
+      'INSERT INTO ai_conversations (id, user_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [conversation.id, conversation.user_id, conversation.project_id, conversation.title, conversation.created_at, conversation.updated_at]
+    );
+    this.saveImmediately();
+    return conversation;
+  }
+
+  public listAIMessages(conversationId: string): AIMessageEntity[] {
+    return this.all('SELECT * FROM ai_messages WHERE conversation_id = ? ORDER BY id ASC', [conversationId]) as AIMessageEntity[];
+  }
+
+  public addAIMessage(conversationId: string, role: AIMessageEntity['role'], content: string, provider?: string | null): AIMessageEntity {
+    const createdAt = new Date().toISOString();
+    this.run('INSERT INTO ai_messages (conversation_id, role, content, provider, created_at) VALUES (?, ?, ?, ?, ?)', [conversationId, role, content, provider || null, createdAt]);
+    this.run('UPDATE ai_conversations SET updated_at = ? WHERE id = ?', [createdAt, conversationId]);
+    this.saveImmediately();
+    const row = this.get('SELECT * FROM ai_messages WHERE id = last_insert_rowid()') as AIMessageEntity | undefined;
+    if (!row) throw new Error('AI message could not be stored.');
+    return row;
   }
 
   public getScan(id: string): ScanEntity | undefined {

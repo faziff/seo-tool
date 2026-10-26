@@ -21,7 +21,8 @@ Do not open `index.html` directly. The crawler, account system, credit tracking 
 ## Setup notes
 
 - `JWT_SECRET` must be a unique random secret of at least 32 characters in production. The development-only fallback is not appropriate for public deployment.
-- `GEMINI_API_KEY` enables Gemini-backed NOVA responses and drafts where supported. Without it, CROX uses the documented local/heuristic fallbacks.
+- AI providers are selected server-side with `AI_PROVIDER=gemini`, `hermes`, `openrouter`, or `groq`. Add the matching provider key and optional model/base URL fields shown in `.env.example`. If credentials are missing, supported NOVA features use local/heuristic fallback guidance. `AI_CACHE_TTL_SECONDS` and the shared `API_CACHE_TTL_SECONDS` default to 300 seconds for their respective caches.
+- Google sign-in is optional. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the exact registered `GOOGLE_REDIRECT_URI` to enable its button; email/password login works without Google setup.
 - `PAGESPEED_API_KEY` enables real PageSpeed Insights data.
 - `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` enable provider-backed keyword metrics when configured.
 - `ADMIN_EMAIL` identifies the account that may use the protected admin user/credit routes.
@@ -40,3 +41,7 @@ Never paste secret values into frontend files or share your real `.env` file.
 ## Data scope
 
 CROX labels estimated or heuristic keyword results; it does not invent live search volume, CPC, rankings, backlink counts or competitor traffic when those providers are not connected. A saved or approved remediation draft does not automatically change the audited site.
+
+## Phase 0 architecture notes
+
+The dashboard now has project-scoped storage and a Semrush-inspired grouped navigation. Some products are intentionally marked as roadmap shells until their data integrations exist; they do not display made-up live metrics. AI conversation tables are ready for Phase 1, but streaming/tool-calling chat is not part of Phase 0. Read [`docs/PHASE_0_ARCHITECTURE.md`](docs/PHASE_0_ARCHITECTURE.md) for the existing-code audit and suggested next module structure.

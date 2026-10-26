@@ -1,5 +1,6 @@
 import { KeywordIntelligenceService, KeywordResult } from './keywords.js';
 import { AIService } from './ai_service.js';
+import { secretFingerprint, withRequestCache } from './request_cache.js';
 
 export interface KeywordRow {
   keyword: string;
@@ -58,16 +59,23 @@ function estimateCpc(intent: KeywordRow['intent'], difficulty: number): number {
 async function googleAutocomplete(seed: string, country: string, language: string): Promise<string[]> {
   const gl = COUNTRY_GL[country.toUpperCase()] || country.slice(0, 2).toLowerCase();
   const hl = language.slice(0, 2).toLowerCase() || 'en';
-  const url = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(seed)}&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
   try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(7000),
-      headers: { 'User-Agent': 'CROX-KeywordProvider/1.0', Accept: 'application/json' }
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const list = Array.isArray(data?.[1]) ? data[1] : [];
-    return list.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 20);
+    return await withRequestCache<string[]>(
+      'google-autocomplete',
+      { seed, country: gl, language: hl },
+      async () => {
+        const url = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(seed)}&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}`;
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(7000),
+          headers: { 'User-Agent': 'CROX-KeywordProvider/1.0', Accept: 'application/json' }
+        });
+        if (!res.ok) throw new Error(`Google autocomplete returned HTTP ${res.status}.`);
+        const data = await res.json();
+        const list = Array.isArray(data?.[1]) ? data[1] : [];
+        return list.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 20);
+      },
+      { ttlSeconds: 1800, maxEntries: 1000 }
+    );
   } catch {
     return [];
   }
@@ -76,38 +84,54 @@ async function googleAutocomplete(seed: string, country: string, language: strin
 async function dataForSeoVolumes(keywords: string[], locationName: string, language: string): Promise<Map<string, { volume: number; cpc: number; difficulty?: number }>> {
   const login = (process.env.DATAFORSEO_LOGIN || '').trim();
   const password = (process.env.DATAFORSEO_PASSWORD || '').trim();
-  const map = new Map<string, { volume: number; cpc: number; difficulty?: number }>();
-  if (!login || !password || keywords.length === 0) return map;
+  const empty = new Map<string, { volume: number; cpc: number; difficulty?: number }>();
+  const requestedKeywords = keywords.slice(0, 20);
+  if (!login || !password || requestedKeywords.length === 0) return empty;
 
   const auth = Buffer.from(`${login}:${password}`).toString('base64');
   try {
-    const res = await fetch('https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live', {
-      method: 'POST',
-      signal: AbortSignal.timeout(20000),
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/json'
+    return await withRequestCache(
+      'dataforseo:google-ads-search-volume',
+      {
+        keywords: requestedKeywords,
+        locationName,
+        language,
+        credential: secretFingerprint(`${login}:${password}`)
       },
-      body: JSON.stringify([{
-        keywords: keywords.slice(0, 20),
-        location_name: locationName,
-        language_name: language
-      }])
-    });
-    const payload: any = await res.json().catch(() => null);
-    const items = payload?.tasks?.[0]?.result || [];
-    for (const item of items) {
-      const key = String(item?.keyword || '').toLowerCase();
-      if (!key) continue;
-      map.set(key, {
-        volume: Number(item.search_volume) || 0,
-        cpc: Number(item.cpc) || 0
-      });
-    }
+      async () => {
+        const res = await fetch('https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live', {
+          method: 'POST',
+          signal: AbortSignal.timeout(20000),
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify([{
+            keywords: requestedKeywords,
+            location_name: locationName,
+            language_name: language
+          }])
+        });
+        if (!res.ok) throw new Error(`DataForSEO request failed with HTTP ${res.status}.`);
+        const payload: any = await res.json().catch(() => null);
+        const items = payload?.tasks?.[0]?.result || [];
+        const map = new Map<string, { volume: number; cpc: number; difficulty?: number }>();
+        for (const item of items) {
+          const key = String(item?.keyword || '').toLowerCase();
+          if (!key) continue;
+          map.set(key, {
+            volume: Number(item.search_volume) || 0,
+            cpc: Number(item.cpc) || 0
+          });
+        }
+        return map;
+      },
+      { ttlEnvVar: 'API_CACHE_TTL_SECONDS', defaultTtlSeconds: 300, maxEntries: 500 }
+    );
   } catch (err: any) {
-    console.warn('[CROX Keywords] DataForSEO request failed:', err?.message || err);
+    console.warn('[CROX Keywords] DataForSEO request failed:', err?.message || 'unknown error');
+    return empty;
   }
-  return map;
 }
 
 function toRow(base: KeywordResult, live?: { volume: number; cpc: number }): KeywordRow {

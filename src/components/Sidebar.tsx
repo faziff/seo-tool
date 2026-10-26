@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Globe,
@@ -9,7 +9,6 @@ import {
   FileText,
   Sparkles,
   BarChart3,
-  Settings,
   Crown,
   ChevronRight,
   X,
@@ -17,7 +16,15 @@ import {
   Telescope,
   Compass,
   Wrench,
-  ListChecks
+  ListChecks,
+  Link2,
+  MapPin,
+  Megaphone,
+  MessageSquareText,
+  Plug,
+  Activity,
+  GitCompare,
+  TrendingUp
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { RecentScanItem } from '../types';
@@ -43,21 +50,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   hasActiveReport
 }) => {
-  const navItems = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'site-audit', label: 'Site Audit', icon: Globe },
-    { id: 'audit-checklist', label: 'Audit Checklist', icon: ListChecks },
-    { id: 'seo-analysis', label: 'SEO Analysis', icon: Search },
-    { id: 'keyword-research', label: 'Keyword Research', icon: Telescope },
-    { id: 'market-research', label: 'Market Research', icon: Compass },
-    { id: 'performance', label: 'Performance', icon: Zap },
-    { id: 'accessibility', label: 'Accessibility', icon: Eye },
-    { id: 'technical', label: 'Technical Issues', icon: Terminal },
-    { id: 'fix-center', label: 'Fix Center', icon: Wrench },
-    { id: 'content', label: 'Content Opportunities', icon: FileText },
-    { id: 'ai-assistant', label: 'NOVA AI Assistant', icon: Sparkles },
-    { id: 'reports', label: 'Reports', icon: BarChart3 },
-    { id: 'settings', label: 'Workspace Settings', icon: Settings },
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const navGroups = [
+    { title: 'Workspace', items: [
+      { id: 'overview', label: 'Home', icon: LayoutDashboard, available: true }
+    ]},
+    { title: 'SEO Toolkit', items: [
+      { id: 'seo-analysis', label: 'Domain Overview', icon: Search, available: true },
+      { id: 'site-audit', label: 'Site Audit', icon: Globe, available: true },
+      { id: 'audit-checklist', label: 'On-page Checklist', icon: ListChecks, available: true },
+      { id: 'keyword-research', label: 'Keyword Magic Tool', icon: Telescope, available: true },
+      { id: 'position-tracking', label: 'Position Tracking', icon: TrendingUp, available: false },
+      { id: 'keyword-gap', label: 'Keyword Gap', icon: GitCompare, available: false },
+      { id: 'backlinks', label: 'Backlink Analytics', icon: Link2, available: false },
+      { id: 'technical', label: 'Technical SEO', icon: Terminal, available: true },
+      { id: 'performance', label: 'Performance', icon: Zap, available: true },
+      { id: 'accessibility', label: 'Accessibility', icon: Eye, available: true },
+      { id: 'fix-center', label: 'Fix Center', icon: Wrench, available: true }
+    ]},
+    { title: 'AI & Visibility', items: [
+      { id: 'ai-visibility', label: 'AI Visibility', icon: Sparkles, available: false },
+      { id: 'ai-assistant', label: 'NOVA Agent', icon: Sparkles, available: true }
+    ]},
+    { title: 'Traffic & Growth', items: [
+      { id: 'market-research', label: 'Traffic & Market', icon: Compass, available: true },
+      { id: 'local-seo', label: 'Local SEO', icon: MapPin, available: false },
+      { id: 'content', label: 'Content', icon: FileText, available: true },
+      { id: 'advertising', label: 'Advertising', icon: Megaphone, available: false },
+      { id: 'ai-pr', label: 'AI PR & Brand', icon: MessageSquareText, available: false },
+      { id: 'social', label: 'Social', icon: Activity, available: false }
+    ]},
+    { title: 'Workspace Tools', items: [
+      { id: 'reports', label: 'Reports', icon: BarChart3, available: true },
+      { id: 'settings', label: 'Apps & Settings', icon: Plug, available: true }
+    ]}
   ];
 
   const content = (
@@ -84,27 +110,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Primary Navigation Rail */}
-        <nav className="space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
+        {/* Grouped navigation mirrors a search-intelligence suite without hiding the tools already implemented. */}
+        <nav aria-label="CROX main navigation" className="space-y-3">
+          {navGroups.map(group => {
+            const isCollapsed = collapsedGroups[group.title] === true;
+            const groupHasActiveItem = group.items.some(item => item.id === currentTab);
             return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onSelectTab(item.id);
-                  if (isMobileOpen) onCloseMobile();
-                }}
-                className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-[#EEF2FF] text-[#4F46E5] font-semibold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[#4F46E5]' : 'text-slate-500'}`} />
-                <span>{item.label}</span>
-              </button>
+              <section key={group.title}>
+                <button type="button" onClick={() => setCollapsedGroups(prev => ({ ...prev, [group.title]: !isCollapsed }))} aria-expanded={!isCollapsed} className="mb-1 flex w-full items-center justify-between gap-2 px-3 py-1 text-left text-[9px] font-extrabold uppercase tracking-[.15em] text-slate-400 hover:text-slate-600">
+                  <span>{group.title}</span>
+                  <ChevronRight className={`h-3 w-3 transition-transform ${!isCollapsed ? 'rotate-90' : ''} ${groupHasActiveItem ? 'text-indigo-500' : ''}`} />
+                </button>
+                {!isCollapsed && <div className="space-y-0.5">
+                  {group.items.map(item => {
+                    const Icon = item.icon;
+                    const isActive = currentTab === item.id;
+                    return (
+                      <button key={item.id} type="button" onClick={() => { onSelectTab(item.id); if (isMobileOpen) onCloseMobile(); }} aria-current={isActive ? 'page' : undefined} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[11px] font-medium transition-colors ${isActive ? 'bg-[#EEF2FF] text-[#4F46E5] font-semibold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}>
+                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-[#4F46E5]' : 'text-slate-500'}`} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {!item.available && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[8px] font-semibold text-slate-400">Soon</span>}
+                      </button>
+                    );
+                  })}
+                </div>}
+              </section>
             );
           })}
         </nav>

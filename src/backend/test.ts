@@ -6,6 +6,8 @@ import { ScoringEngine } from './scoring.js';
 import { ReportingService } from './reporting.js';
 import { KeywordIntelligenceService } from './keywords.js';
 import { AIService } from './ai_service.js';
+import { getAIProviderStatus } from './ai_provider.js';
+import { secretFingerprint, withRequestCache } from './request_cache.js';
 
 let passedTests = 0;
 let failedTests = 0;
@@ -25,6 +27,74 @@ async function runAllTests() {
   process.env.DB_PATH = process.env.DB_PATH || `${process.cwd()}/.data/crox-test.sqlite`;
   await initDb();
   console.log('\n=== RUNNING CROX BACKEND TEST SUITE ===\n');
+
+  await test('Project and AI conversation storage is account-scoped and persistent', () => {
+    const ownerId = 900_000 + Math.floor(Math.random() * 90_000);
+    const projectId = `test-project-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    const created = db.createProject({
+      id: projectId,
+      user_id: ownerId,
+      name: 'Example workspace',
+      domain: 'example.org',
+      target_url: 'https://example.org',
+      country: 'PK',
+      created_at: now,
+      updated_at: now
+    });
+    assert.strictEqual(created.domain, 'example.org');
+    assert.strictEqual(db.listProjects(ownerId).some(project => project.id === projectId), true);
+    assert.strictEqual(db.getProject(projectId, ownerId + 1), undefined);
+
+    const conversationId = `test-conversation-${Date.now()}`;
+    db.createAIConversation({ id: conversationId, user_id: ownerId, project_id: projectId, title: 'Test NOVA thread', created_at: now, updated_at: now });
+    db.addAIMessage(conversationId, 'user', 'Help prioritize technical SEO fixes.');
+    db.addAIMessage(conversationId, 'assistant', 'Review indexability, then metadata.', 'demo');
+    assert.strictEqual(db.listAIConversations(ownerId, projectId).length, 1);
+    assert.strictEqual(db.listAIMessages(conversationId).length, 2);
+    assert.strictEqual(db.deleteProject(projectId, ownerId), true);
+    assert.strictEqual(db.getProject(projectId, ownerId), undefined);
+    assert.strictEqual(db.listAIMessages(conversationId).length, 0);
+  });
+
+  await test('External request cache coalesces identical calls and fingerprints credentials', async () => {
+    const descriptor = { request: `test-${Date.now()}`, token: secretFingerprint('example-secret') };
+    let calls = 0;
+    const loader = async () => {
+      calls += 1;
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return { value: 'cached-result' };
+    };
+    const [first, second] = await Promise.all([
+      withRequestCache('backend-test', descriptor, loader, { ttlSeconds: 30 }),
+      withRequestCache('backend-test', descriptor, loader, { ttlSeconds: 30 })
+    ]);
+    const third = await withRequestCache('backend-test', descriptor, loader, { ttlSeconds: 30 });
+    assert.deepStrictEqual(first, { value: 'cached-result' });
+    assert.deepStrictEqual(second, { value: 'cached-result' });
+    assert.deepStrictEqual(third, { value: 'cached-result' });
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(secretFingerprint('example-secret').includes('example-secret'), false);
+  });
+
+  await test('AI provider status supports safe demo mode without credentials', () => {
+    const keys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const original = new Map(keys.map(key => [key, process.env[key]]));
+    try {
+      for (const key of keys) delete process.env[key];
+      const status = getAIProviderStatus();
+      assert.strictEqual(status.provider, 'demo');
+      assert.strictEqual(status.configured, false);
+      assert.strictEqual(status.mode, 'demo');
+      assert.strictEqual(status.note.toLowerCase().includes('api_key'), false);
+    } finally {
+      for (const key of keys) {
+        const value = original.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 
   // Test 1: SSRF Defense
   await test('SSRF blocks loopback 127.0.0.1', async () => {
@@ -244,8 +314,9 @@ async function runAllTests() {
 
   // Test 8: NOVA fallback must never fabricate live demand data.
   await test('NOVA keyword and market research fallback labels estimated data honestly', async () => {
-    const originalKey = process.env.GEMINI_API_KEY;
-    delete process.env.GEMINI_API_KEY;
+    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const originalProviderEnv = new Map(providerEnvKeys.map(key => [key, process.env[key]]));
+    for (const key of providerEnvKeys) delete process.env[key];
     try {
       const strategy = await AIService.generateKeywordStrategy('artisan candles', 'E-commerce & retail', 'Pakistan');
       assert.strictEqual(strategy.ai_mode, 'heuristic');
@@ -259,14 +330,18 @@ async function runAllTests() {
       assert.strictEqual(brief.brief.includes('30-day'), true);
       assert.strictEqual(brief.note.toLowerCase().includes('no live market metrics'), true);
     } finally {
-      if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
-      else process.env.GEMINI_API_KEY = originalKey;
+      for (const key of providerEnvKeys) {
+        const value = originalProviderEnv.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 
   await test('Fix Center fallback generates a contextual code draft', async () => {
-    const originalKey = process.env.GEMINI_API_KEY;
-    delete process.env.GEMINI_API_KEY;
+    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const originalProviderEnv = new Map(providerEnvKeys.map(key => [key, process.env[key]]));
+    for (const key of providerEnvKeys) delete process.env[key];
     try {
       const fix = await AIService.generateFix({
         title: 'Missing meta description',
@@ -280,8 +355,11 @@ async function runAllTests() {
       assert.strictEqual(fix.code_snippet.includes('name=\"description\"'), true);
       assert.strictEqual(fix.fix_explanation.length > 20, true);
     } finally {
-      if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
-      else process.env.GEMINI_API_KEY = originalKey;
+      for (const key of providerEnvKeys) {
+        const value = originalProviderEnv.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 

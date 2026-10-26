@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { ScannerHero } from './components/ScannerHero';
-import { EmptyDashboard } from './components/EmptyDashboard';
 import { HealthScoreCard } from './components/HealthScoreCard';
 import { CrawlStatsCard } from './components/CrawlStatsCard';
 import { TopIssuesTable } from './components/TopIssuesTable';
@@ -14,6 +12,8 @@ import { FixCenterPage } from './pages/FixCenterPage';
 import { NovaOrb } from './components/NovaOrb';
 import { BrandMark } from './components/BrandMark';
 import { LandingPage } from './components/LandingPage';
+import { WorkspaceHome } from './components/WorkspaceHome';
+import { ModulePreviewPage } from './components/ModulePreviewPage';
 import { AuthPage } from './components/AuthPage';
 import { AuditChecklistPage } from './pages/AuditChecklistPage';
 
@@ -35,8 +35,10 @@ import {
   fetchCurrentUser,
   fetchCreditSnapshot,
   logoutUser,
+  listProjects,
+  createProject as createProjectRequest,
 } from './services/api';
-import { ScanReport, ScanProgress, RecentScanItem, Issue, User, CreditSnapshot } from './types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue, User, CreditSnapshot, Project } from './types';
 import { Globe, ArrowRight, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
@@ -52,6 +54,7 @@ export default function App() {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [recentScans, setRecentScans] = useState<RecentScanItem[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
 
   // Modals & Drawers
@@ -93,6 +96,7 @@ export default function App() {
           setPagePath('/app');
         }
         void loadUserScans();
+        void loadUserProjects();
         void refreshCredits();
       } else {
         setCredits(null);
@@ -138,7 +142,15 @@ export default function App() {
       }
       const tools: Array<{ terms: string[]; tab: string }> = [
         { terms: ['fix', 'fix center', 'remediation', 'autofix'], tab: 'fix-center' },
+        { terms: ['keyword gap'], tab: 'keyword-gap' },
         { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
+        { terms: ['backlink', 'link building'], tab: 'backlinks' },
+        { terms: ['position tracking', 'rank tracking'], tab: 'position-tracking' },
+        { terms: ['ai visibility', 'ai mentions'], tab: 'ai-visibility' },
+        { terms: ['local seo', 'local listings'], tab: 'local-seo' },
+        { terms: ['advertising', 'ads research'], tab: 'advertising' },
+        { terms: ['social', 'social media'], tab: 'social' },
+        { terms: ['ai pr', 'brand mentions'], tab: 'ai-pr' },
         { terms: ['market', 'competitor'], tab: 'market-research' },
         { terms: ['performance', 'speed', 'core web vitals'], tab: 'performance' },
         { terms: ['accessibility', 'wcag'], tab: 'accessibility' },
@@ -169,6 +181,21 @@ export default function App() {
     } catch {
       // Ignore if no scans
     }
+  };
+
+  const loadUserProjects = async () => {
+    try {
+      const items = await listProjects();
+      setProjects(items);
+    } catch (error) {
+      console.warn('[CROX] Could not load workspace projects:', error);
+    }
+  };
+
+  const handleCreateProject = async (input: { name: string; target_url: string; country: string }) => {
+    const saved = await createProjectRequest(input);
+    await loadUserProjects();
+    return saved;
   };
 
   const focusScannerInput = () => {
@@ -280,9 +307,19 @@ export default function App() {
     setCurrentTab('overview');
     setReport(null);
     setRecentScans([]);
+    setProjects([]);
     navigate('/app', true);
     void loadUserScans();
+    void loadUserProjects();
     void refreshCredits();
+    // Continue a domain analysis started from the public landing page after account creation.
+    try {
+      const pendingTarget = sessionStorage.getItem('crox_pending_domain');
+      if (pendingTarget) {
+        sessionStorage.removeItem('crox_pending_domain');
+        window.setTimeout(() => { void handleStartScan(pendingTarget); }, 0);
+      }
+    } catch { /* Session storage can be disabled; the workspace remains usable. */ }
   };
 
   const handleLogout = async () => {
@@ -291,6 +328,7 @@ export default function App() {
     setCredits(null);
     setReport(null);
     setRecentScans([]);
+    setProjects([]);
     setCurrentTab('overview');
     navigate('/login', true);
   };
@@ -322,7 +360,14 @@ export default function App() {
     if (pagePath === '/login' || pagePath === '/signup' || pagePath === '/register') {
       return <AuthPage key={pagePath} initialMode={initialMode} onSuccess={handleAuthSuccess} onModeChange={mode => navigate(mode === 'register' ? '/signup' : '/login', true)} />;
     }
-    return <LandingPage onSignIn={() => navigate('/login')} onSignUp={() => navigate('/signup')} />;
+    return <LandingPage
+      onSignIn={() => navigate('/login')}
+      onSignUp={() => navigate('/signup')}
+      onAnalyze={(target) => {
+        try { sessionStorage.setItem('crox_pending_domain', target); } catch { /* Account creation still works without session storage. */ }
+        navigate('/signup');
+      }}
+    />;
   }
 
   return (
@@ -378,23 +423,22 @@ export default function App() {
 
             {currentTab === 'overview' && (
               <>
-                {/* Center Hero Scanner and Quick Actions */}
-                <ScannerHero
-                  onStartScan={handleStartScan}
+                <WorkspaceHome
+                  userName={currentUser.name}
+                  projects={projects}
+                  recentScans={recentScans}
+                  report={report}
                   isScanning={isScanning}
                   scanProgress={scanProgress}
-                  onOpenReports={() => setCurrentTab('reports')}
-                  onOpenCompare={() => setIsCompareOpen(true)}
+                  onAnalyzeTarget={handleStartScan}
+                  onOpenTab={setCurrentTab}
                   onOpenAI={() => setIsAIOpen(true)}
-                  onQuickAudit={focusScannerInput}
+                  onCreateProject={handleCreateProject}
+                  onSelectScan={handleSelectScan}
                 />
-
-                {/* If no report is loaded, show clean onboarding empty dashboard */}
-                {!report ? (
-                  <EmptyDashboard onFocusScanner={focusScannerInput} />
-                ) : (
+                {report && (
                   <>
-                    {/* Second Row: Health Score & 4 Category Cards (Left) | Crawl Statistics (Right) */}
+                    {/* Current audit metrics remain available below the project overview. */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                       <div className="lg:col-span-8">
                         <HealthScoreCard
@@ -554,6 +598,10 @@ export default function App() {
             )}
 
             {currentTab === 'settings' && <SettingsPage />}
+
+            {['ai-visibility', 'local-seo', 'advertising', 'ai-pr', 'social', 'position-tracking', 'keyword-gap', 'backlinks'].includes(currentTab) && (
+              <ModulePreviewPage moduleId={currentTab} onOpenTab={setCurrentTab} />
+            )}
           </main>
         </div>
       </div>

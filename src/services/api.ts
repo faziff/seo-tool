@@ -1,4 +1,4 @@
-import { ScanReport, ScanProgress, RecentScanItem, Issue, User, FixDraft, CreditSnapshot } from '../types';
+import { ScanReport, ScanProgress, RecentScanItem, Issue, User, FixDraft, CreditSnapshot, Project } from '../types';
 
 const TOKEN_KEY = 'crox_auth_token';
 
@@ -144,6 +144,36 @@ export async function changeUserPassword(currentPassword: string, newPassword: s
     throw new Error(err.detail || 'Password update failed');
   }
   return res.json();
+}
+
+// ==========================================
+// PROJECTS
+// ==========================================
+
+export async function listProjects(): Promise<Project[]> {
+  const res = await fetch('/api/projects', { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error(data?.detail || 'Could not load projects.');
+  return Array.isArray(data) ? data as Project[] : [];
+}
+
+export async function createProject(input: { name: string; target_url: string; country?: string }): Promise<Project> {
+  const res = await fetch('/api/projects', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || 'Could not create this project.');
+  return data as Project;
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'DELETE', headers: getAuthHeaders()
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || 'Could not delete this project.');
 }
 
 // ==========================================

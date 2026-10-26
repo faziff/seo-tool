@@ -3,7 +3,7 @@ import {
   ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Sparkles,
   TrendingUp, Search, ShieldCheck, Zap, LoaderCircle, UserRound
 } from 'lucide-react';
-import { checkAccountService, loginUser, registerUser } from '../services/api';
+import { checkAccountService, fetchCurrentUser, loginUser, registerUser, setStoredToken } from '../services/api';
 import { User } from '../types';
 import { BrandMark } from './BrandMark';
 
@@ -29,14 +29,47 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialMode = 'lo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [serviceStatus, setServiceStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [googleConfigured, setGoogleConfigured] = useState(false);
 
   useEffect(() => {
     let active = true;
     checkAccountService().then((online) => {
       if (active) setServiceStatus(online ? 'online' : 'offline');
     });
-    return () => { active = false; };
-  }, []);
+    fetch('/api/auth/google/status', { headers: { Accept: 'application/json' } })
+      .then(response => response.ok ? response.json() : null)
+      .then(result => { if (active) setGoogleConfigured(result?.configured === true); })
+      .catch(() => { if (active) setGoogleConfigured(false); });
+
+    const handleGoogleAuth = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'crox:google-auth') return;
+      const token = String(event.data?.access_token || '');
+      if (!token || token.length > 8192) return;
+      setError('');
+      setStoredToken(token);
+      setLoading(true);
+      try {
+        const user = await fetchCurrentUser();
+        if (!user) throw new Error('Google sign-in completed, but CROX could not load your account. Please try again.');
+        onSuccess(user);
+      } catch (authError) {
+        setError(authError instanceof Error ? authError.message : 'Google sign-in failed. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    window.addEventListener('message', handleGoogleAuth);
+    return () => {
+      active = false;
+      window.removeEventListener('message', handleGoogleAuth);
+    };
+  }, [onSuccess]);
+
+  const handleGoogleSignIn = () => {
+    setError('');
+    const popup = window.open('/api/auth/google/start', 'crox-google-sign-in', 'popup=yes,width=520,height=680,resizable=yes,scrollbars=yes');
+    if (!popup) setError('Your browser blocked the Google sign-in popup. Allow popups for CROX and try again.');
+  };
 
   const changeMode = (nextMode: 'login' | 'register') => {
     setMode(nextMode);
@@ -154,6 +187,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialMode = 'lo
               {error && <div className="crox-form-error" role="alert">{error}</div>}
               <button className="crox-submit-button" type="submit" disabled={loading}>{loading ? <><LoaderCircle size={17} className="crox-spin" /> Securely connecting…</> : <>{mode === 'login' ? 'Enter your workspace' : 'Create my workspace'} <ArrowRight size={17} /></>}</button>
             </form>
+            <div className="crox-auth-divider"><span />or continue with<span /></div>
+            <button type="button" onClick={handleGoogleSignIn} disabled={!googleConfigured || loading} className="crox-google-button" title={googleConfigured ? 'Continue securely with Google' : 'Add Google OAuth credentials to the server to enable Google sign-in'}>
+              <span className="crox-google-letter">G</span> Continue with Google
+            </button>
+            {!googleConfigured && <p className="crox-google-note">Google sign-in becomes available after server OAuth credentials are configured.</p>}
             <div className="crox-privacy-note"><LockKeyhole size={12} /> Secure account access <span /> No card required to get started</div>
           </div>
           <div className="crox-auth-support">Need a little direction? <button onClick={() => changeMode(mode === 'login' ? 'register' : 'login')} type="button">{mode === 'login' ? 'Create your workspace' : 'I already have an account'} <ArrowRight size={13} /></button></div>

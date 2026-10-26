@@ -13,6 +13,8 @@ import { consumeCredit } from './credits.js';
 import { buildPageChecklist } from './page_checklist.js';
 import { dataForSeoConfigured } from './keywordProvider.js';
 import { agentConfigured } from './agent.js';
+import { getAIProviderStatus } from './ai_provider.js';
+import { secretFingerprint, withRequestCache } from './request_cache.js';
 
 export const apiRouter = express.Router();
 apiRouter.use(platformRouter);
@@ -24,6 +26,7 @@ const activeCrawlers = new Map<string, WebsiteCrawler>();
 // 1. HEALTH ENDPOINT
 // ==========================================
 apiRouter.get('/health', (_req, res) => {
+  const aiProvider = getAIProviderStatus();
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -31,6 +34,9 @@ apiRouter.get('/health', (_req, res) => {
     version: '2.4.0',
     uptime_seconds: Math.round(process.uptime()),
     gemini_ai_configured: !!process.env.GEMINI_API_KEY,
+    ai_provider: aiProvider.provider,
+    ai_configured: aiProvider.configured,
+    ai_mode: aiProvider.mode,
     dataforseo_configured: dataForSeoConfigured(),
     agent_configured: agentConfigured()
   });
@@ -792,36 +798,53 @@ apiRouter.get('/pagespeed', requireAuth, async (req: AuthenticatedRequest, res) 
   }
 
   try {
-    const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
-    endpoint.searchParams.set('url', validation.normalizedUrl);
-    endpoint.searchParams.set('strategy', strategy);
-    endpoint.searchParams.set('category', 'performance');
-    endpoint.searchParams.set('key', apiKey);
+    const result = await withRequestCache(
+      'google-pagespeed:performance',
+      { url: validation.normalizedUrl, strategy, credential: secretFingerprint(apiKey) },
+      async () => {
+        const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+        endpoint.searchParams.set('url', validation.normalizedUrl);
+        endpoint.searchParams.set('strategy', strategy);
+        endpoint.searchParams.set('category', 'performance');
+        endpoint.searchParams.set('key', apiKey);
 
-    const providerResponse = await fetch(endpoint, { signal: AbortSignal.timeout(30000), headers: { Accept: 'application/json' } });
-    const payload: any = await providerResponse.json().catch(() => null);
-    if (!providerResponse.ok) {
-      const providerMessage = typeof payload?.error?.message === 'string' ? payload.error.message : 'Google PageSpeed Insights request failed.';
-      return res.status(502).json({ status: 'error', message: providerMessage });
-    }
+        const providerResponse = await fetch(endpoint, { signal: AbortSignal.timeout(30000), headers: { Accept: 'application/json' } });
+        const payload: any = await providerResponse.json().catch(() => null);
+        if (!providerResponse.ok) {
+          const providerMessage = typeof payload?.error?.message === 'string' ? payload.error.message : 'Google PageSpeed Insights request failed.';
+          throw new Error(providerMessage.replaceAll(apiKey, '[redacted]').slice(0, 180));
+        }
 
-    const audits = payload?.lighthouseResult?.audits || {};
-    const rawScore = payload?.lighthouseResult?.categories?.performance?.score;
-    const performanceScore = typeof rawScore === 'number' ? Math.round(rawScore * 100) : null;
-    const lcp = audits['largest-contentful-paint']?.displayValue || null;
-    const cls = audits['cumulative-layout-shift']?.displayValue || null;
-    const fcp = audits['first-contentful-paint']?.displayValue || null;
+        const audits = payload?.lighthouseResult?.audits || {};
+        const rawScore = payload?.lighthouseResult?.categories?.performance?.score;
+        const performanceScore = typeof rawScore === 'number' ? Math.round(rawScore * 100) : null;
+        return {
+          data: {
+            performance_score: performanceScore,
+            lcp: audits['largest-contentful-paint']?.displayValue || null,
+            cls: audits['cumulative-layout-shift']?.displayValue || null,
+            fcp: audits['first-contentful-paint']?.displayValue || null
+          },
+          fetched_at: new Date().toISOString()
+        };
+      },
+      { ttlEnvVar: 'API_CACHE_TTL_SECONDS', defaultTtlSeconds: 300, maxEntries: 500 }
+    );
 
     return res.json({
       status: 'success',
-      data: { performance_score: performanceScore, lcp, cls, fcp },
+      data: result.data,
       target_url: validation.normalizedUrl,
       strategy,
       provider: 'Google PageSpeed Insights',
-      fetched_at: new Date().toISOString()
+      fetched_at: result.fetched_at
     });
   } catch (error: any) {
     const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    const message = String(error?.message || '');
+    if (message && !timedOut && /Google PageSpeed Insights request failed|invalid API key|quota|API key not valid/i.test(message)) {
+      return res.status(502).json({ status: 'error', message: message.slice(0, 180) });
+    }
     return res.status(timedOut ? 504 : 502).json({
       status: 'error',
       message: timedOut ? 'Google PageSpeed Insights timed out. Try again shortly.' : 'Could not reach Google PageSpeed Insights from the CROX server.'
@@ -832,14 +855,22 @@ apiRouter.get('/pagespeed', requireAuth, async (req: AuthenticatedRequest, res) 
 apiRouter.get('/integrations/status', requireAuth, (_req, res) => {
   const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
   const pageSpeedConfigured = Boolean(process.env.PAGESPEED_API_KEY);
+  const aiProvider = getAIProviderStatus();
   res.json({
-    gemini: { configured: geminiConfigured, model: 'gemini-2.5-flash' },
+    ai: { provider: aiProvider.provider, configured: aiProvider.configured, mode: aiProvider.mode, model: aiProvider.model, note: aiProvider.note },
+    gemini: { configured: geminiConfigured, model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' },
     pagespeed: { configured: pageSpeedConfigured },
     dataforseo: { configured: dataForSeoConfigured() },
     agent: { configured: agentConfigured() },
+    ai_provider: {
+      status: aiProvider.configured ? 'connected' : 'demo_mode',
+      provider: aiProvider.provider,
+      model: aiProvider.model,
+      description: aiProvider.note
+    },
     gemini_ai: {
-      status: geminiConfigured ? 'connected' : 'disconnected',
-      description: 'Google Gemini 2.5 Flash for NOVA assistant and AI-assisted fix drafts.'
+      status: geminiConfigured ? 'connected' : 'not_configured',
+      description: 'Optional Google Gemini provider for NOVA assistant and AI-assisted drafts.'
     },
     pagespeed_insights: {
       status: pageSpeedConfigured ? 'connected' : 'not_configured',

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Cpu, Gauge, Info, KeyRound, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Gauge, Info, KeyRound, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { getIntegrationsStatus } from '../services/api';
 
 interface IntegrationStatus {
+  ai?: { provider: string; configured: boolean; mode: 'live' | 'demo'; model: string; note: string };
   gemini?: { configured: boolean; model?: string };
   pagespeed?: { configured: boolean };
 }
@@ -33,7 +34,7 @@ export const SettingsPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 text-violet-200 text-[11px] font-bold tracking-[0.18em] uppercase mb-3"><SlidersHorizontal className="w-4 h-4" /> Workspace control room</div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Settings & Integrations</h1>
-            <p className="text-sm text-slate-300 mt-2 max-w-xl leading-6">Check the engine status, optional AI connection, and crawl safety controls. This dashboard build does not require a user account.</p>
+            <p className="text-sm text-slate-300 mt-2 max-w-xl leading-6">Review server-side AI integrations, optional data providers and crawler safety controls for your signed-in workspace.</p>
           </div>
           <div className="rounded-2xl bg-white/10 border border-white/10 p-4 min-w-40 backdrop-blur-sm">
             <div className="flex items-center gap-2 text-sm font-bold"><span className="w-2 h-2 rounded-full bg-emerald-400" /> CROX Engine</div>
@@ -47,11 +48,11 @@ export const SettingsPage: React.FC = () => {
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3"><div className="w-11 h-11 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center"><Sparkles className="w-5 h-5" /></div><div><h2 className="font-bold text-slate-900">NOVA · Gemini AI</h2><p className="text-xs text-slate-500 mt-1">AI fix drafts, copilot and strategy</p></div></div>
-            <StatusPill configured={integrations?.gemini?.configured} />
+            <div className="flex items-center gap-3"><div className="w-11 h-11 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center"><Sparkles className="w-5 h-5" /></div><div><h2 className="font-bold text-slate-900">NOVA · AI Provider</h2><p className="text-xs text-slate-500 mt-1">Gemini, Hermes, OpenRouter or Groq</p></div></div>
+            <StatusPill configured={integrations?.ai?.configured} optional={!integrations?.ai?.configured} />
           </div>
-          <p className="text-sm leading-6 text-slate-600 mt-4">When configured, NOVA can generate context-aware fix suggestions. Without the key, CROX uses local rule-based drafts instead of pretending an AI request succeeded.</p>
-          <div className="mt-4 rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs text-slate-600"><span className="font-semibold text-slate-800">Server variable:</span> <code className="font-mono text-violet-700">GEMINI_API_KEY</code>{integrations?.gemini?.model ? <span className="ml-2 text-slate-400">Model: {integrations.gemini.model}</span> : null}</div>
+          <p className="text-sm leading-6 text-slate-600 mt-4">When a provider is configured, NOVA can generate context-aware drafts and strategy. Without credentials, supported features switch to clear local guidance rather than pretending a live request succeeded.</p>
+          <div className="mt-4 rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs text-slate-600"><span className="font-semibold text-slate-800">Mode:</span> <code className="font-mono text-violet-700">{integrations?.ai?.mode || 'checking'}</code>{integrations?.ai?.provider ? <span className="ml-2 text-slate-400">Provider: {integrations.ai.provider} · Model: {integrations.ai.model}</span> : null}<p className="mt-2">Server variables: <code>AI_PROVIDER</code>, plus the selected provider key and model in <code>.env.example</code>.</p></div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -77,12 +78,12 @@ export const SettingsPage: React.FC = () => {
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center"><KeyRound className="w-5 h-5" /></div><div><h2 className="font-bold text-slate-900">Configure optional keys</h2><p className="text-xs text-slate-500 mt-1">Keep secrets on the server only</p></div></div>
         <ol className="list-decimal pl-5 mt-4 space-y-2 text-sm leading-6 text-slate-600">
           <li>Open the project’s server-side <code className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">.env</code> file.</li>
-          <li>Add <code className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">GEMINI_API_KEY=your_key</code> or <code className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">PAGESPEED_API_KEY=your_key</code>.</li>
+          <li>Add <code className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">AI_PROVIDER</code> and the matching provider key (for example <code>GEMINI_API_KEY</code>, <code>HERMES_API_KEY</code>, <code>OPENROUTER_API_KEY</code> or <code>GROQ_API_KEY</code>), or add <code className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">PAGESPEED_API_KEY</code>.</li>
           <li>Restart the CROX Node.js server. Never paste private keys into frontend code or commit them to GitHub.</li>
         </ol>
       </section>
 
-      <div className="flex gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-4 text-sm text-violet-950"><Info className="w-5 h-5 shrink-0 text-violet-600 mt-0.5" /><p className="leading-6">Authentication UI has been removed from this dashboard build so you can add your own login system later. Before making a public multi-user deployment, add access control and user-level data isolation around scan history and Fix Center routes.</p></div>
+      <div className="flex gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-4 text-sm text-violet-950"><Info className="w-5 h-5 shrink-0 text-violet-600 mt-0.5" /><p className="leading-6">CROX account routes require a signed-in user. Google sign-in is optional and only becomes available after its server OAuth settings are configured. Keep provider credentials in the server environment, never in frontend code.</p></div>
     </div>
   );
 };
