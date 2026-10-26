@@ -128,7 +128,9 @@ export default function App() {
 
   useEffect(() => {
     if (authReady && !currentUser && (pagePath === '/app' || pagePath.startsWith('/app/'))) navigate('/login', true);
-    if (authReady && currentUser && (pagePath === '/' || pagePath === '/login' || pagePath === '/signup' || pagePath === '/register')) navigate('/app', true);
+    // Keep the public landing page at `/` for both signed-out and signed-in visitors.
+    // Only auth screens should redirect an already signed-in user into the workspace.
+    if (authReady && currentUser && (pagePath === '/login' || pagePath === '/signup' || pagePath === '/register')) navigate('/app', true);
   }, [authReady, currentUser, pagePath]);
 
   useEffect(() => {
@@ -355,15 +357,23 @@ export default function App() {
     return <div className="crox-loading-screen"><BrandMark size={46} /><span>Preparing your CROX workspace…</span></div>;
   }
 
-  if (!currentUser) {
+  // `/` is always the public marketing homepage, even when a user has an active session.
+  // This prevents the signed-in redirect from hiding the new sky-blue landing page.
+  if (pagePath === '/' || !currentUser) {
+    const isAuthPage = pagePath === '/login' || pagePath === '/signup' || pagePath === '/register';
     const initialMode = pagePath === '/signup' || pagePath === '/register' ? 'register' : 'login';
-    if (pagePath === '/login' || pagePath === '/signup' || pagePath === '/register') {
+    if (!currentUser && isAuthPage) {
       return <AuthPage key={pagePath} initialMode={initialMode} onSuccess={handleAuthSuccess} onModeChange={mode => navigate(mode === 'register' ? '/signup' : '/login', true)} />;
     }
     return <LandingPage
-      onSignIn={() => navigate('/login')}
-      onSignUp={() => navigate('/signup')}
+      onSignIn={() => currentUser ? navigate('/app') : navigate('/login')}
+      onSignUp={() => currentUser ? navigate('/app') : navigate('/signup')}
       onAnalyze={(target) => {
+        if (currentUser) {
+          navigate('/app');
+          void handleStartScan(target);
+          return;
+        }
         try { sessionStorage.setItem('crox_pending_domain', target); } catch { /* Account creation still works without session storage. */ }
         navigate('/signup');
       }}
