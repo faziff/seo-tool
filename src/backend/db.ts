@@ -267,6 +267,11 @@ CREATE TABLE IF NOT EXISTS scans (
   completed_at TEXT,
   error_message TEXT
 );
+CREATE TABLE IF NOT EXISTS scan_audit_summaries (
+  scan_id TEXT PRIMARY KEY,
+  passed_checks_json TEXT NOT NULL DEFAULT '[]',
+  total_checks_count INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS scanned_pages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   scan_id TEXT NOT NULL,
@@ -716,6 +721,7 @@ class DatabaseStore {
     if (!scan) return false;
     if (userId && scan.user_id !== userId) return false;
     this.run('DELETE FROM scanned_pages WHERE scan_id = ?', [id]);
+    this.run('DELETE FROM scan_audit_summaries WHERE scan_id = ?', [id]);
     this.run('DELETE FROM issues WHERE scan_id = ?', [id]);
     this.run('DELETE FROM fixes WHERE scan_id = ?', [id]);
     this.run('DELETE FROM scans WHERE id = ?', [id]);
@@ -743,6 +749,27 @@ class DatabaseStore {
     return this.all('SELECT * FROM scanned_pages WHERE scan_id = ?', [scanId]).map(mapPage);
   }
 
+  public setAuditSummary(scanId: string, passedChecks: string[], totalChecks: number) {
+    this.run(
+      `INSERT OR REPLACE INTO scan_audit_summaries (scan_id, passed_checks_json, total_checks_count) VALUES (?, ?, ?)`,
+      [scanId, JSON.stringify(passedChecks), Math.max(0, totalChecks)]
+    );
+    this.save();
+  }
+
+  public getAuditSummary(scanId: string): { passed_checks: string[]; total_checks_count: number } {
+    const row = this.get('SELECT * FROM scan_audit_summaries WHERE scan_id = ?', [scanId]);
+    let passedChecks: string[] = [];
+    try {
+      const parsed = JSON.parse(row?.passed_checks_json || '[]');
+      if (Array.isArray(parsed)) passedChecks = parsed.filter((value: unknown): value is string => typeof value === 'string');
+    } catch { passedChecks = []; }
+    return {
+      passed_checks: passedChecks,
+      total_checks_count: Number(row?.total_checks_count || 0)
+    };
+  }
+
   public addIssues(issues: IssueEntity[]) {
     for (const issue of issues) {
       this.run(
@@ -760,6 +787,11 @@ class DatabaseStore {
 
   public getIssuesForScan(scanId: string): IssueEntity[] {
     return this.all('SELECT * FROM issues WHERE scan_id = ?', [scanId]).map(mapIssue);
+  }
+
+  public getIssue(id: string): IssueEntity | undefined {
+    const row = this.get('SELECT * FROM issues WHERE id = ?', [id]);
+    return row ? mapIssue(row) : undefined;
   }
 
   public updateIssue(id: string, updates: Partial<IssueEntity>): IssueEntity | undefined {

@@ -20,6 +20,8 @@ export interface ExtractedPageData {
   h1List: string[];
   h2Count: number;
   h3Count: number;
+  h2List: string[];
+  h3List: string[];
   wordCount: number;
   isIndexable: boolean;
   images: Array<{ src: string; alt: string; hasAlt: boolean }>;
@@ -27,6 +29,20 @@ export interface ExtractedPageData {
   externalLinks: string[];
   jsonLdList: any[];
   hasMixedContent: boolean;
+  schemaTypes: string[];
+  faqSchemaCount: number;
+  author: string | null;
+  datePublished: string | null;
+  dateModified: string | null;
+  siteName: string | null;
+  publisherName: string | null;
+  questionHeadings: number;
+  answerBlocks: number;
+  shortAnswerBlocks: number;
+  definitionBlocks: number;
+  listCount: number;
+  tableCount: number;
+  externalCitations: number;
   rawHtmlLength: number;
 }
 
@@ -126,6 +142,80 @@ export class WebsiteCrawler {
     return true;
   }
 
+  /** Fetch a URL while validating every redirect destination before making that request. */
+  private async fetchWithValidatedRedirects(
+    rawUrl: string,
+    init: RequestInit,
+    maxRedirects = 5
+  ): Promise<Response> {
+    let currentUrl = rawUrl;
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      const validation = await validateTargetUrl(currentUrl);
+      if (!validation.valid) {
+        throw new Error(`Blocked URL by network safety validation: ${validation.error || currentUrl}`);
+      }
+
+      const requestUrl = validation.normalizedUrl || currentUrl;
+      const response = await fetch(requestUrl, { ...init, redirect: 'manual' });
+      const location = response.headers.get('location');
+      const isRedirect = [301, 302, 303, 307, 308].includes(response.status);
+      if (!isRedirect || !location) return response;
+
+      if (hop >= maxRedirects) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error('Redirect limit exceeded.');
+      }
+
+      const next = new URL(location, requestUrl);
+      const host = next.hostname.toLowerCase();
+      if ((next.protocol !== 'http:' && next.protocol !== 'https:') ||
+          (host !== this.rootHostname && !host.endsWith(`.${this.rootHostname}`))) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error('Cross-domain or unsupported-protocol redirect was blocked.');
+      }
+
+      await response.body?.cancel().catch(() => undefined);
+      const nextValidation = await validateTargetUrl(next.toString());
+      if (!nextValidation.valid) {
+        throw new Error(`Blocked redirect destination: ${nextValidation.error || next.toString()}`);
+      }
+      this.redirectsCount++;
+      currentUrl = nextValidation.normalizedUrl || next.toString();
+    }
+    throw new Error('Redirect limit exceeded.');
+  }
+
+  /** Read a response body with a hard byte ceiling to protect crawler memory. */
+  private async readLimitedText(response: Response, maxBytes: number): Promise<string> {
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`Response exceeded the ${Math.round(maxBytes / 1024)} KB crawler limit.`);
+    }
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error(`Response exceeded the ${Math.round(maxBytes / 1024)} KB crawler limit.`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder().decode(merged);
+  }
+
   private async fetchRobotsTxt(): Promise<string[]> {
     const sitemaps: string[] = [];
     try {
@@ -135,14 +225,19 @@ export class WebsiteCrawler {
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(robotsUrl, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'CROX-SEO-Crawler/2.0 (+https://crox.ai/bot)' }
-      });
-      clearTimeout(timeout);
+      let text = '';
+      let res: Response;
+      try {
+        res = await this.fetchWithValidatedRedirects(robotsUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'CROX-SEO-Crawler/2.0 (+https://crox.ai/bot)' }
+        }, 3);
+        if (res.ok) text = await this.readLimitedText(res, 512 * 1024);
+      } finally {
+        clearTimeout(timeout);
+      }
 
-      if (res.ok) {
-        const text = await res.text();
+      if (res!.ok) {
         const lines = text.split('\n');
         let isAppliesToUs = true;
 
@@ -176,14 +271,19 @@ export class WebsiteCrawler {
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(sitemapUrl, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'CROX-SEO-Crawler/2.0' }
-      });
-      clearTimeout(timeout);
+      let res: Response;
+      let xml = '';
+      try {
+        res = await this.fetchWithValidatedRedirects(sitemapUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'CROX-SEO-Crawler/2.0' }
+        }, 3);
+        if (res.ok) xml = await this.readLimitedText(res, 1024 * 1024);
+      } finally {
+        clearTimeout(timeout);
+      }
 
-      if (res.ok) {
-        const xml = await res.text();
+      if (res!.ok) {
         const urlMatches = xml.matchAll(/<loc>([^<]+)<\/loc>/g);
         for (const match of urlMatches) {
           const rawLoc = match[1]?.trim();
@@ -288,29 +388,30 @@ export class WebsiteCrawler {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
-        const response = await fetch(currentUrl, {
-          signal: controller.signal,
-          redirect: 'follow',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; CROX-SEO-Audit/2.0; +https://crox.ai/bot)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9'
+        let response: Response;
+        let html = '';
+        try {
+          response = await this.fetchWithValidatedRedirects(currentUrl, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; CROX-SEO-Audit/2.0; +https://crox.ai/bot)',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }
+          }, 5);
+          const responseType = response.headers.get('content-type') || 'text/html';
+          if (responseType.includes('text/html') || responseType.includes('application/xhtml')) {
+            html = await this.readLimitedText(response, 2 * 1024 * 1024);
+          } else {
+            await response.body?.cancel().catch(() => undefined);
           }
-        });
-        clearTimeout(timeout);
+        } finally {
+          clearTimeout(timeout);
+        }
 
         const responseTimeMs = Math.round(performance.now() - startTime);
         const statusCode = response.status;
         const contentType = response.headers.get('content-type') || 'text/html';
-
-        if (response.redirected) {
-          this.redirectsCount++;
-          // Validate final destination
-          const finalSsrf = await validateTargetUrl(response.url);
-          if (!finalSsrf.valid) {
-            continue;
-          }
-        }
 
         if (statusCode >= 400) {
           this.brokenLinksCount++;
@@ -337,6 +438,22 @@ export class WebsiteCrawler {
             h1List: [],
             h2Count: 0,
             h3Count: 0,
+            h2List: [],
+            h3List: [],
+            schemaTypes: [],
+            faqSchemaCount: 0,
+            author: null,
+            datePublished: null,
+            dateModified: null,
+            siteName: null,
+            publisherName: null,
+            questionHeadings: 0,
+            answerBlocks: 0,
+            shortAnswerBlocks: 0,
+            definitionBlocks: 0,
+            listCount: 0,
+            tableCount: 0,
+            externalCitations: 0,
             wordCount: 0,
             isIndexable: statusCode < 400,
             images: [],
@@ -350,7 +467,6 @@ export class WebsiteCrawler {
           continue;
         }
 
-        const html = await response.text();
         const parsedData = this.parsePageHtml(currentUrl, statusCode, responseTimeMs, contentType, html);
         this.crawledPages.push(parsedData);
         crawledCount++;
@@ -386,6 +502,22 @@ export class WebsiteCrawler {
           h1List: [],
           h2Count: 0,
           h3Count: 0,
+          h2List: [],
+          h3List: [],
+          schemaTypes: [],
+          faqSchemaCount: 0,
+          author: null,
+          datePublished: null,
+          dateModified: null,
+          siteName: null,
+          publisherName: null,
+          questionHeadings: 0,
+          answerBlocks: 0,
+          shortAnswerBlocks: 0,
+          definitionBlocks: 0,
+          listCount: 0,
+          tableCount: 0,
+          externalCitations: 0,
           wordCount: 0,
           isIndexable: false,
           images: [],
@@ -464,8 +596,22 @@ export class WebsiteCrawler {
       if (text) h1List.push(text);
     });
 
-    const h2Count = $('h2').length;
-    const h3Count = $('h3').length;
+    const h2List: string[] = [];
+    const h3List: string[] = [];
+    $('h2').each((_, el) => { const value = $(el).text().replace(/\s+/g, ' ').trim(); if (value) h2List.push(value); });
+    $('h3').each((_, el) => { const value = $(el).text().replace(/\s+/g, ' ').trim(); if (value) h3List.push(value); });
+    const h2Count = h2List.length;
+    const h3Count = h3List.length;
+
+    // Preserve JSON-LD before removing scripts from the visible-text extraction.
+    const jsonLdList: any[] = [];
+    $('script[type="application/ld+json"]').each((_, el) => {
+      const content = $(el).html();
+      if (content) {
+        try { jsonLdList.push(JSON.parse(content.trim())); }
+        catch { jsonLdList.push({ __invalid_syntax: true, raw: content.slice(0, 150) }); }
+      }
+    });
 
     // Body text & Word count
     $('script, style, noscript, svg, nav, footer, header').remove();
@@ -521,19 +667,52 @@ export class WebsiteCrawler {
       }
     });
 
-    // Structured data (JSON-LD)
-    const jsonLdList: any[] = [];
-    $('script[type="application/ld+json"]').each((_, el) => {
-      const content = $(el).html();
-      if (content) {
-        try {
-          const parsed = JSON.parse(content.trim());
-          jsonLdList.push(parsed);
-        } catch {
-          jsonLdList.push({ __invalid_syntax: true, raw: content.slice(0, 150) });
-        }
-      }
-    });
+    // Structured data is now read from the preserved JSON-LD scripts above.
+    const schemaTypes = new Set<string>();
+    const schemaObjects: any[] = [];
+    const collectSchema = (value: any) => {
+      if (Array.isArray(value)) { value.forEach(collectSchema); return; }
+      if (!value || typeof value !== 'object') return;
+      schemaObjects.push(value);
+      const rawType = value['@type'];
+      (Array.isArray(rawType) ? rawType : rawType ? [rawType] : []).forEach((type: unknown) => {
+        if (typeof type === 'string') schemaTypes.add(type);
+      });
+      if (value['@graph']) collectSchema(value['@graph']);
+      if (value.mainEntity) collectSchema(value.mainEntity);
+      if (value.itemListElement) collectSchema(value.itemListElement);
+    };
+    jsonLdList.forEach(collectSchema);
+    const faqSchemaCount = [...schemaTypes].filter(type => /FAQPage|QAPage/i.test(type)).length;
+    const firstNamed = (selector: string) => {
+      const value = $(selector).first().attr('content') || $(selector).first().text();
+      return value ? value.trim() : null;
+    };
+    const author = firstNamed('meta[name="author" i], [rel="author"]') || (() => {
+      const schemaAuthor = schemaObjects.find(item => item.author)?.author;
+      return typeof schemaAuthor === 'string' ? schemaAuthor : schemaAuthor?.name || null;
+    })();
+    const datePublished = firstNamed('meta[property="article:published_time" i], meta[name="datePublished" i], time[datetime]') || schemaObjects.find(item => item.datePublished)?.datePublished || null;
+    const dateModified = firstNamed('meta[property="article:modified_time" i], meta[name="dateModified" i]') || schemaObjects.find(item => item.dateModified)?.dateModified || null;
+    const siteName = firstNamed('meta[property="og:site_name" i]');
+    const publisherCandidate = schemaObjects.find(item => item.publisher)?.publisher;
+    const publisherName = typeof publisherCandidate === 'string' ? publisherCandidate : publisherCandidate?.name || siteName || null;
+    const questionPattern = /\?$|^(what|how|why|when|where|who|which|can|does|do|is|are|should|will)\b/i;
+    const questionHeadingElements = $('h2, h3').toArray().filter(el => questionPattern.test($(el).text().replace(/\s+/g, ' ').trim()));
+    const questionHeadings = questionHeadingElements.length;
+    const paragraphs = $('p').map((_, el) => $(el).text().replace(/\s+/g, ' ').trim()).get().filter(Boolean);
+    const shortAnswerBlocks = paragraphs.filter(value => value.split(/\s+/).length >= 8 && value.split(/\s+/).length <= 80).length;
+    const definitionBlocks = paragraphs.filter(value => /\b(is a|are a|refers to|means|defined as|is known as)\b/i.test(value)).length;
+    // Count a concise answer only when a question heading is immediately followed by a paragraph.
+    const answerBlocks = questionHeadingElements.filter(el => {
+      const next = $(el).next();
+      if (!next.is('p')) return false;
+      const wordCount = next.text().replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+      return wordCount >= 8 && wordCount <= 80;
+    }).length;
+    const listCount = $('ul, ol').length;
+    const tableCount = $('table').length;
+    const externalCitations = externalLinks.length;
 
     return {
       url,
@@ -554,6 +733,8 @@ export class WebsiteCrawler {
       h1List,
       h2Count,
       h3Count,
+      h2List,
+      h3List,
       wordCount,
       isIndexable,
       images,
@@ -561,6 +742,20 @@ export class WebsiteCrawler {
       externalLinks,
       jsonLdList,
       hasMixedContent,
+      schemaTypes: [...schemaTypes],
+      faqSchemaCount,
+      author,
+      datePublished: typeof datePublished === 'string' ? datePublished : null,
+      dateModified: typeof dateModified === 'string' ? dateModified : null,
+      siteName,
+      publisherName,
+      questionHeadings,
+      answerBlocks,
+      shortAnswerBlocks,
+      definitionBlocks,
+      listCount,
+      tableCount,
+      externalCitations,
       rawHtmlLength: html.length
     };
   }

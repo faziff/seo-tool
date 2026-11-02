@@ -31,6 +31,24 @@ export class ScoringEngine {
     passedChecks: string[]
   ): ScoreReport {
     const safePages = Math.max(1, totalPages);
+    if (totalPages <= 0) {
+      const emptyCategory = (): CategoryScoreResult => ({ score: 0, status: 'Poor', passed_checks: 0, warning_checks: 0, critical_checks: 0, issues_count: 0 });
+      return {
+        health_score: 0,
+        technical_score: 0,
+        performance_score: 0,
+        accessibility_score: 0,
+        seo_score: 0,
+        severity_counts: { Critical: 0, High: 0, Medium: 0, Low: 0 },
+        category_scores: {
+          'Technical SEO': emptyCategory(),
+          'On-Page SEO': emptyCategory(),
+          'Performance': emptyCategory(),
+          'Accessibility': emptyCategory(),
+          'Crawlability': emptyCategory()
+        }
+      };
+    }
 
     const severityCounts = {
       Critical: 0,

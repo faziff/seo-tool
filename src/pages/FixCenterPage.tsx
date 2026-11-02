@@ -112,6 +112,14 @@ export const FixCenterPage: React.FC<FixCenterPageProps> = ({ report, onFocusSca
   };
 
   const changeStatus = async (fix: FixDraft, status: FixStatus) => {
+    if (status === 'approved') {
+      let shouldConfirm = true;
+      try {
+        const prefs = JSON.parse(localStorage.getItem('crox_workspace_preferences') || '{}');
+        shouldConfirm = prefs.confirmBeforeApprovingFixes !== false;
+      } catch { /* Prefer confirmation if settings cannot be read. */ }
+      if (shouldConfirm && !window.confirm('Approve this fix draft? Approval records your review; it does not publish changes to your website.')) return;
+    }
     setBusyFixId(fix.id);
     try {
       const updated = await updateFixDraft(fix.id, { status });

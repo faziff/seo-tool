@@ -33,10 +33,14 @@ Never paste secret values into frontend files or share your real `.env` file.
 ## Workspace workflow
 
 1. Run a website audit from the Overview screen.
-2. Review the overall score and move through Site Audit, Audit Checklist, SEO Analysis, Technical Issues and Performance.
+2. Open the three dashboard workspaces: SEO, AEO and GEO. Run a fresh scan to populate all three. AEO/GEO use crawl-derived readiness checks; they do not claim actual AI platform citations or rankings.
 3. Use Keyword Research to build a list of keyword ideas, filter by intent and export the selected set to CSV.
 4. Use Fix Center and NOVA to draft potential improvements. Review any generated text or code before using it on a live website.
 5. Check the header credits bar for remaining daily audit, AI and keyword allowances. Default allowances reset at midnight Pakistan time.
+
+## SEO, AEO and GEO
+
+The dashboard starts with three workspaces. SEO covers the technical and on-page audit. AEO evaluates crawlable question/answer structure and answer-friendly content. GEO evaluates entity clarity, evidence, authorship/freshness and structured context. Older scans should be re-crawled to collect the new AEO/GEO signals. These scores are readiness assessments—not actual ChatGPT, Gemini, Perplexity or Google AI Overviews citation/mention metrics.
 
 ## Data scope
 

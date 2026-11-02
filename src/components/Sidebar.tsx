@@ -24,7 +24,10 @@ import {
   Plug,
   Activity,
   GitCompare,
-  TrendingUp
+  TrendingUp,
+  CircleHelp,
+  Network,
+  SearchCheck
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { RecentScanItem } from '../types';
@@ -55,8 +58,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { title: 'Workspace', items: [
       { id: 'overview', label: 'Home', icon: LayoutDashboard, available: true }
     ]},
+    { title: 'Search Intelligence', items: [
+      { id: 'seo-analysis', label: 'SEO · Search Optimization', icon: SearchCheck, available: true },
+      { id: 'aeo', label: 'AEO · Answer Optimization', icon: CircleHelp, available: true },
+      { id: 'geo', label: 'GEO · Generative Optimization', icon: Network, available: true },
+    ]},
     { title: 'SEO Toolkit', items: [
-      { id: 'seo-analysis', label: 'Domain Overview', icon: Search, available: true },
       { id: 'site-audit', label: 'Site Audit', icon: Globe, available: true },
       { id: 'audit-checklist', label: 'On-page Checklist', icon: ListChecks, available: true },
       { id: 'keyword-research', label: 'Keyword Magic Tool', icon: Telescope, available: true },

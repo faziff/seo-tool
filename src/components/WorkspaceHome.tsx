@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Activity, ArrowRight, BarChart3, BookOpen, Check, ChevronDown, ChevronRight,
-  CircleHelp, Code2, FileText, Globe2, Layers3, MapPin, Plus, Search, ShieldCheck,
-  Sparkles, Target, TrendingUp, X, Zap
+  Activity, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight,
+  CircleHelp, FileText, Globe2, Layers3, Plus, Search, ShieldCheck,
+  Sparkles, X
 } from 'lucide-react';
 import { NovaOrb } from './NovaOrb';
 import type { Project, RecentScanItem, ScanProgress, ScanReport } from '../types';
+import { assessAEO, assessGEO } from '../utils/searchReadiness';
 
 interface WorkspaceHomeProps {
   userName: string;
@@ -22,12 +23,9 @@ interface WorkspaceHomeProps {
 }
 
 const productCards = [
-  { id: 'site-audit', title: 'SEO Toolkit', description: 'Audit your website, find technical issues and uncover keyword opportunities.', icon: Search, tint: 'bg-emerald-50 text-emerald-600', available: true, tag: 'Available now' },
-  { id: 'ai-visibility', title: 'AI Visibility', description: 'Prepare to track brand mentions and citations across AI answer engines.', icon: Sparkles, tint: 'bg-violet-50 text-violet-600', available: false, tag: 'Roadmap' },
-  { id: 'market-research', title: 'Traffic & Market', description: 'Compare competitor positioning and explore market opportunities.', icon: BarChart3, tint: 'bg-blue-50 text-blue-600', available: true, tag: 'Available now' },
-  { id: 'local-seo', title: 'Local', description: 'A future workspace for local listings, map rankings and review insights.', icon: MapPin, tint: 'bg-amber-50 text-amber-600', available: false, tag: 'Roadmap' },
-  { id: 'content', title: 'Content', description: 'Find content gaps and shape a search-focused editorial workflow.', icon: FileText, tint: 'bg-teal-50 text-teal-600', available: true, tag: 'Starter tools' },
-  { id: 'advertising', title: 'Advertising', description: 'A planned hub for competitor ad research and campaign planning.', icon: Target, tint: 'bg-orange-50 text-orange-600', available: false, tag: 'Roadmap' }
+  { id: 'seo-analysis', title: 'SEO', eyebrow: 'SEARCH ENGINE OPTIMIZATION', description: 'Technical health, crawlability, on-page signals, keywords, performance and actionable fixes.', icon: Search, tint: 'bg-blue-50 text-blue-700', tag: 'Core search' },
+  { id: 'aeo', title: 'AEO', eyebrow: 'ANSWER ENGINE OPTIMIZATION', description: 'Question coverage, direct answers, structured data and content that is easy to understand and extract.', icon: CircleHelp, tint: 'bg-violet-50 text-violet-700', tag: 'Answer readiness' },
+  { id: 'geo', title: 'GEO', eyebrow: 'GENERATIVE ENGINE OPTIMIZATION', description: 'Entity clarity, evidence-rich content, authorship, topical depth and generative search foundations.', icon: Sparkles, tint: 'bg-teal-50 text-teal-700', tag: 'Generative readiness' }
 ];
 
 const countryOptions = [
@@ -64,8 +62,14 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
   const [projectError, setProjectError] = useState('');
   const [monitoringOpen, setMonitoringOpen] = useState(false);
   const [createSuccess, setCreateSuccess] = useState('');
+  const [showScanNotifications] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('crox_workspace_preferences') || '{}').showScanNotifications !== false; }
+    catch { return true; }
+  });
 
   const greetingName = userName.trim().split(/\s+/)[0] || 'there';
+  const aeoAssessment = assessAEO(report);
+  const geoAssessment = assessGEO(report);
   const scanByDomain = useMemo(() => {
     const map = new Map<string, RecentScanItem>();
     recentScans.forEach(scan => {
@@ -132,7 +136,7 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
         <button type="submit" disabled={!query.trim() || isScanning} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-xs font-bold text-white transition hover:bg-indigo-950 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><span>{isScanning ? 'Analyzing…' : 'Analyze'}</span>{isScanning ? <Activity size={14} className="animate-pulse" /> : <ArrowRight size={14} />}</button>
       </form>
 
-      {isScanning && scanProgress && (
+      {isScanning && scanProgress && showScanNotifications && (
         <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between gap-3 text-xs"><span className="min-w-0 truncate font-semibold text-indigo-900">{scanProgress.current_action}</span><span className="font-bold tabular-nums text-indigo-700">{scanProgress.progress}%</span></div>
           <div className="h-1.5 overflow-hidden rounded-full bg-indigo-100"><div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: `${Math.max(4, Math.min(100, scanProgress.progress))}%` }} /></div>
@@ -141,16 +145,18 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
       )}
 
       <section aria-labelledby="product-categories-title" className="space-y-3">
-        <div className="flex items-center justify-between gap-3"><h2 id="product-categories-title" className="text-sm font-bold text-slate-900">Explore CROX tools</h2><span className="text-[10px] text-slate-400">Modules unlock in phases</span></div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"><div><h2 id="product-categories-title" className="text-sm font-extrabold text-slate-900">Three search intelligence workspaces</h2><p className="mt-1 text-[10px] text-slate-500">One website crawl feeds your SEO, AEO and GEO foundation assessments.</p></div><span className="text-[9px] font-semibold uppercase tracking-[.12em] text-slate-400">SEO · AEO · GEO</span></div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           {productCards.map(card => {
             const Icon = card.icon;
             return (
-              <button key={card.id} type="button" onClick={() => onOpenTab(card.id)} className="group flex min-h-[150px] flex-col rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500/25">
-                <div className="mb-3 flex items-center justify-between gap-2"><span className={`grid h-8 w-8 place-items-center rounded-xl ${card.tint}`}><Icon size={16} /></span><span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${card.available ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{card.tag}</span></div>
-                <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-700">{card.title}</span>
-                <span className="mt-1.5 flex-1 text-[10px] leading-[1.6] text-slate-500">{card.description}</span>
-                <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 group-hover:text-indigo-600">{card.available ? 'Open module' : 'View roadmap'} <ChevronRight size={12} /></span>
+              <button key={card.id} type="button" onClick={() => onOpenTab(card.id)} className="group relative flex min-h-[205px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/25">
+                <span className={`absolute -right-8 -top-10 h-32 w-32 rounded-full opacity-50 blur-2xl ${card.tint.split(' ')[0]}`} />
+                <div className="relative mb-4 flex items-center justify-between gap-2"><span className={`grid h-11 w-11 place-items-center rounded-2xl ${card.tint}`}><Icon size={21} /></span><span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">{card.tag}</span></div>
+                <span className="relative text-xl font-extrabold tracking-tight text-slate-900 group-hover:text-indigo-700">{card.title}</span>
+                <span className="relative mt-1 text-[8px] font-bold tracking-[.13em] text-slate-400">{card.eyebrow}</span>
+                <span className="relative mt-2 flex-1 text-[10px] leading-[1.7] text-slate-500">{card.description}</span>
+                <div className="relative mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span className="text-[10px] font-bold text-slate-700">{card.id === 'seo-analysis' ? (report ? `SEO Score · ${Math.round(report.seo_score)}/100` : 'Run a scan to measure') : card.id === 'aeo' ? (aeoAssessment.score === null ? 'Not measured yet' : `AEO Readiness · ${aeoAssessment.score}/100`) : (geoAssessment.score === null ? 'Not measured yet' : `GEO Readiness · ${geoAssessment.score}/100`)}</span><span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600">Open workspace <ChevronRight size={13} /></span></div>
               </button>
             );
           })}
@@ -159,7 +165,7 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div><h2 className="text-sm font-bold text-slate-900">Projects</h2><p className="mt-1 text-[10px] text-slate-500">Save domains to organize audits and future monitoring in your workspace.</p></div>
+          <div><h2 className="text-sm font-bold text-slate-900">Projects</h2><p className="mt-1 text-[10px] text-slate-500">Save domains and organize all three search intelligence workspaces.</p></div>
           <button type="button" onClick={() => { setShowCreate(true); setProjectError(''); }} className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-300 px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 sm:self-auto"><Plus size={13} /> Create Project</button>
         </div>
         {createSuccess && <div className="mx-4 mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-[10px] text-emerald-800 sm:mx-5">{createSuccess}</div>}
@@ -172,12 +178,11 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
               const activeScore = report?.domain.toLowerCase() === project.domain.toLowerCase() ? report.health_score : scan?.health_score;
               const scoreAvailable = scan?.status === 'completed' || report?.domain.toLowerCase() === project.domain.toLowerCase();
               return (
-                <div key={project.id} className="grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-slate-50/70 sm:px-5 lg:grid-cols-[minmax(180px,1.4fr)_repeat(4,minmax(90px,.7fr))_auto] lg:items-center">
+                <div key={project.id} className="grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-slate-50/70 sm:px-5 lg:grid-cols-[minmax(180px,1.4fr)_repeat(3,minmax(90px,.7fr))_auto] lg:items-center">
                   <div className="flex min-w-0 items-center gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600"><Globe2 size={17} /></div><div className="min-w-0"><button type="button" onClick={() => onAnalyzeTarget(project.target_url)} className="block max-w-full truncate text-left text-xs font-bold text-indigo-700 hover:underline">{project.name}</button><p className="mt-0.5 truncate text-[10px] text-slate-500">{project.domain} <span className="mx-1 text-slate-300">·</span>{project.country}</p><p className="mt-1 text-[9px] text-slate-400">Added {formatDate(project.created_at)}</p></div></div>
-                  <div><p className="text-[10px] font-semibold text-slate-700">Site Health</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-900">{scoreAvailable && typeof activeScore === 'number' ? <>{Math.round(activeScore)}<span className="ml-0.5 text-[9px] font-medium text-slate-400">/100</span></> : <span className="text-xs font-medium text-slate-400">Not audited</span>}</p>{scan?.status === 'completed' && <p className="text-[9px] text-emerald-600">Audit completed</p>}</div>
-                  <div><p className="text-[10px] font-semibold text-slate-700">AI Visibility</p><p className="mt-1 text-xs font-semibold text-slate-400">Not tracked</p></div>
-                  <div><p className="text-[10px] font-semibold text-slate-700">Organic Traffic</p><p className="mt-1 text-xs font-semibold text-slate-400">Connect analytics</p></div>
-                  <div><p className="text-[10px] font-semibold text-slate-700">Backlinks</p><p className="mt-1 text-xs font-semibold text-slate-400">Provider needed</p></div>
+                  <div><p className="text-[10px] font-semibold text-slate-700">SEO Health</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-900">{scoreAvailable && typeof activeScore === 'number' ? <>{Math.round(activeScore)}<span className="ml-0.5 text-[9px] font-medium text-slate-400">/100</span></> : <span className="text-xs font-medium text-slate-400">Not audited</span>}</p>{scan?.status === 'completed' && <p className="text-[9px] text-emerald-600">Audit completed</p>}</div>
+                  <div><p className="text-[10px] font-semibold text-slate-700">AEO</p><p className="mt-1 text-xs font-semibold text-slate-400">{report?.domain.toLowerCase() === project.domain.toLowerCase() && aeoAssessment.score !== null ? `${aeoAssessment.score}/100 readiness` : 'Not measured'}</p></div>
+                  <div><p className="text-[10px] font-semibold text-slate-700">GEO</p><p className="mt-1 text-xs font-semibold text-slate-400">{report?.domain.toLowerCase() === project.domain.toLowerCase() && geoAssessment.score !== null ? `${geoAssessment.score}/100 readiness` : 'Not measured'}</p></div>
                   <div className="flex items-center gap-2 lg:justify-end"><button type="button" onClick={() => onAnalyzeTarget(project.target_url)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-950 px-3 py-2 text-[10px] font-semibold text-white hover:bg-indigo-950"><Search size={12} /> Analyze</button><button type="button" title="Open reports for this project" onClick={() => { const match = recentScans.find(item => item.domain.toLowerCase() === project.domain.toLowerCase()); if (match) onSelectScan(match.id); else onOpenTab('reports'); }} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-white hover:text-indigo-700"><FileText size={13} /></button></div>
                 </div>
               );

@@ -26,6 +26,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { KeywordResearchPage } from './pages/KeywordResearchPage';
 import { MarketResearchPage } from './pages/MarketResearchPage';
+import { SearchPillarPage } from './pages/SearchPillarPage';
 
 import {
   startScan,
@@ -148,6 +149,8 @@ export default function App() {
         { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
         { terms: ['backlink', 'link building'], tab: 'backlinks' },
         { terms: ['position tracking', 'rank tracking'], tab: 'position-tracking' },
+        { terms: ['aeo', 'answer engine', 'answer optimization'], tab: 'aeo' },
+        { terms: ['geo', 'generative engine', 'generative optimization'], tab: 'geo' },
         { terms: ['ai visibility', 'ai mentions'], tab: 'ai-visibility' },
         { terms: ['local seo', 'local listings'], tab: 'local-seo' },
         { terms: ['advertising', 'ads research'], tab: 'advertising' },
@@ -203,7 +206,7 @@ export default function App() {
   const focusScannerInput = () => {
     setCurrentTab('overview');
     setTimeout(() => {
-      const inputEl = document.querySelector('input[placeholder="Enter your website URL or domain"]') as HTMLInputElement;
+      const inputEl = document.querySelector('input[placeholder="Enter website or keyword"]') as HTMLInputElement;
       if (inputEl) {
         inputEl.focus();
         inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -231,7 +234,13 @@ export default function App() {
     });
 
     try {
-      const initial = await startScan(url, 50);
+      let crawlDepth = 50;
+      try {
+        const savedPreferences = JSON.parse(localStorage.getItem('crox_workspace_preferences') || '{}');
+        const requestedDepth = Number(savedPreferences.defaultCrawlDepth);
+        if (requestedDepth === 25 || requestedDepth === 50) crawlDepth = requestedDepth;
+      } catch { /* Default crawl depth remains 50 pages. */ }
+      const initial = await startScan(url, crawlDepth);
       window.dispatchEvent(new Event('crox:credits-refresh'));
       setScanProgress(initial);
 
@@ -521,6 +530,24 @@ export default function App() {
               )
             )}
 
+            {currentTab === 'aeo' && (
+              <SearchPillarPage
+                pillar="aeo"
+                report={report}
+                onRunAudit={focusScannerInput}
+                onOpenTab={setCurrentTab}
+              />
+            )}
+
+            {currentTab === 'geo' && (
+              <SearchPillarPage
+                pillar="geo"
+                report={report}
+                onRunAudit={focusScannerInput}
+                onOpenTab={setCurrentTab}
+              />
+            )}
+
             {currentTab === 'keyword-research' && <KeywordResearchPage />}
 
             {currentTab === 'market-research' && <MarketResearchPage />}
@@ -607,7 +634,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'settings' && <SettingsPage />}
+            {currentTab === 'settings' && <SettingsPage user={currentUser} theme={theme} onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />}
 
             {['ai-visibility', 'local-seo', 'advertising', 'ai-pr', 'social', 'position-tracking', 'keyword-gap', 'backlinks'].includes(currentTab) && (
               <ModulePreviewPage moduleId={currentTab} onOpenTab={setCurrentTab} />

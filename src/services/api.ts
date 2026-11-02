@@ -247,6 +247,7 @@ export async function generateAIFix(issue: Issue): Promise<any> {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({
+      issue_id: issue.id,
       title: issue.title,
       category: issue.category,
       affected_url: issue.affected_url,

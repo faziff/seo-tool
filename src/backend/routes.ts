@@ -46,21 +46,20 @@ apiRouter.get('/health', (_req, res) => {
 // 3. SCAN & CRAWLER ENDPOINTS
 // ==========================================
 apiRouter.post('/scans', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const credit = consumeCredit(req.user!, 'audit');
-  if (!credit.ok) {
-    return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
-  }
-  const { url, max_pages } = req.body;
+  const { url, max_pages } = req.body || {};
 
-  if (!url) {
-    return res.status(400).json({ detail: 'Website target URL is required.' });
+  if (typeof url !== 'string' || !url.trim() || url.length > 2048) {
+    return res.status(400).json({ detail: 'Enter a website URL no longer than 2,048 characters.' });
   }
 
-  // SSRF and URL validation
-  const validation = await validateTargetUrl(url);
+  // SSRF and URL validation happen before consuming the user's daily allowance.
+  const validation = await validateTargetUrl(url.trim());
   if (!validation.valid) {
     return res.status(400).json({ detail: validation.error || 'Invalid or prohibited website URL.' });
   }
+
+  const credit = consumeCredit(req.user!, 'audit');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
 
   const targetUrl = validation.normalizedUrl;
   const domain = validation.hostname;
@@ -152,12 +151,31 @@ apiRouter.post('/scans', requireAuth, async (req: AuthenticatedRequest, res) => 
           internal_links_count: p.internalLinks.length,
           external_links_count: p.externalLinks.length,
           extra: {
+            search_signals_version: 1,
             h1: p.h1List,
             og_title: p.ogTitle,
             og_description: p.ogDescription,
             og_image: p.ogImage,
             https: p.url.startsWith('https://'),
             schema_blocks: (p.jsonLdList || []).length,
+            schema_types: p.schemaTypes || [],
+            faq_schema_count: p.faqSchemaCount || 0,
+            author: p.author || null,
+            date_published: p.datePublished || null,
+            date_modified: p.dateModified || null,
+            site_name: p.siteName || null,
+            publisher_name: p.publisherName || null,
+            question_headings: p.questionHeadings || 0,
+            answer_blocks: p.answerBlocks || 0,
+            short_answer_blocks: p.shortAnswerBlocks || 0,
+            definition_blocks: p.definitionBlocks || 0,
+            list_count: p.listCount || 0,
+            table_count: p.tableCount || 0,
+            external_citations: p.externalCitations || 0,
+            h2_count: p.h2Count || 0,
+            h3_count: p.h3Count || 0,
+            h2: (p.h2List || []).slice(0, 30),
+            h3: (p.h3List || []).slice(0, 50),
             missing_alt: (p.images || []).filter(img => !img.hasAlt).length
           },
           checklist: buildPageChecklist(p)
@@ -166,6 +184,9 @@ apiRouter.post('/scans', requireAuth, async (req: AuthenticatedRequest, res) => 
 
       // Execute SEO Audit Rules
       const auditResult = SEOAuditEngine.audit(crawlResult.pages, scanId);
+
+      // Persist the exact audit checks so reports never invent passed items.
+      db.setAuditSummary(scanId, auditResult.passed_checks, auditResult.total_checks_count);
 
       // Save issues to DB
       db.addIssues(
@@ -269,14 +290,9 @@ apiRouter.get('/scans/:id/report', requireAuth, (req: AuthenticatedRequest, res)
   const pages = db.getPagesForScan(scan.id);
   const issues = db.getIssuesForScan(scan.id);
 
-  // Compute scores and breakdowns
-  const scores = ScoringEngine.calculate(issues as any, pages.length, [
-    'Title Tag Presence',
-    'Mobile Viewport Configuration',
-    'HTTPS Encryption',
-    'Robots Indexability Directives',
-    'Canonical Tag Coverage'
-  ]);
+  // Use the stored scan summary; never claim a check passed without audit evidence.
+  const auditSummary = db.getAuditSummary(scan.id);
+  const scores = ScoringEngine.calculate(issues as any, pages.length, auditSummary.passed_checks);
 
   const report = {
     scan_id: scan.id,
@@ -314,17 +330,11 @@ apiRouter.get('/scans/:id/report', requireAuth, (req: AuthenticatedRequest, res)
       extra: p.extra,
       checklist: p.checklist
     })),
-    passed_checks: [
-      'Title Tag Presence',
-      'Mobile Viewport Configuration',
-      'HTTPS Encryption',
-      'Robots Indexability Directives',
-      'Canonical Tag Coverage'
-    ],
-    passed_checks_count: 5,
+    passed_checks: auditSummary.passed_checks,
+    passed_checks_count: auditSummary.passed_checks.length,
     warning_checks_count: issues.filter(i => i.severity === 'High' || i.severity === 'Medium').length,
     critical_checks_count: issues.filter(i => i.severity === 'Critical').length,
-    total_checks_count: 5 + issues.length,
+    total_checks_count: Math.max(auditSummary.total_checks_count, auditSummary.passed_checks.length + issues.length),
     severity_counts: scores.severity_counts,
     category_scores: scores.category_scores
   };
@@ -334,8 +344,12 @@ apiRouter.get('/scans/:id/report', requireAuth, (req: AuthenticatedRequest, res)
 
 apiRouter.delete('/scans/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const scanId = req.params.id;
+  const scan = db.getScan(scanId);
+  if (!assertScanOwner(scan, req.user!.id)) {
+    return res.status(404).json({ detail: 'Scan not found or permission denied.' });
+  }
 
-  // Cancel if actively running
+  // Only cancel a crawler after confirming the signed-in user owns its scan.
   if (activeCrawlers.has(scanId)) {
     activeCrawlers.get(scanId)?.cancel();
     activeCrawlers.delete(scanId);
@@ -403,18 +417,25 @@ apiRouter.post('/scans/compare', requireAuth, (req: AuthenticatedRequest, res) =
 // 4. ISSUES & REMEDIATION
 // ==========================================
 apiRouter.patch('/issues/:id', requireAuth, (req: AuthenticatedRequest, res) => {
-  const { resolved } = req.body;
-  const updated = db.updateIssue(req.params.id, { resolved: !!resolved });
-  if (!updated) {
+  const issue = db.getIssue(req.params.id);
+  const scan = issue ? db.getScan(issue.scan_id) : undefined;
+  if (!issue || !assertScanOwner(scan, req.user!.id)) {
     return res.status(404).json({ detail: 'Issue not found.' });
   }
+  const { resolved } = req.body || {};
+  const updated = db.updateIssue(req.params.id, { resolved: !!resolved });
+  if (!updated) return res.status(404).json({ detail: 'Issue not found.' });
   res.json(updated);
 });
 
 apiRouter.post('/ai/fix', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { issue_id, title, category, affected_url, evidence, explanation } = req.body || {};
+  if (typeof issue_id !== 'string' || !issue_id.trim()) return res.status(400).json({ detail: 'A valid issue_id is required to generate a fix.' });
+  const issue = db.getIssue(issue_id.trim());
+  const scan = issue ? db.getScan(issue.scan_id) : undefined;
+  if (!issue || !assertScanOwner(scan, req.user!.id)) return res.status(404).json({ detail: 'Issue not found.' });
   const credit = consumeCredit(req.user!, 'ai');
   if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
-  const { title, category, affected_url, evidence, explanation } = req.body;
   const fix = await AIService.generateFix({
     title: title || 'SEO Optimization',
     category: category || 'SEO',
@@ -438,17 +459,16 @@ apiRouter.post('/ai/fix', requireAuth, async (req: AuthenticatedRequest, res) =>
 apiRouter.get('/fixes', requireAuth, (req: AuthenticatedRequest, res) => {
   const scanId = String(req.query.scan_id || '').trim();
   if (!scanId) return res.status(400).json({ detail: 'scan_id is required.' });
-  if (!db.getScan(scanId)) return res.status(404).json({ detail: 'Scan not found.' });
+  const scan = db.getScan(scanId);
+  if (!assertScanOwner(scan, req.user!.id)) return res.status(404).json({ detail: 'Scan not found.' });
   res.json(db.getFixesForScan(scanId));
 });
 
 apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const credit = consumeCredit(req.user!, 'ai');
-  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const scanId = typeof req.body?.scan_id === 'string' ? req.body.scan_id.trim() : '';
   if (!scanId) return res.status(400).json({ detail: 'Select a completed scan before generating fixes.' });
   const scan = db.getScan(scanId);
-  if (!scan) return res.status(404).json({ detail: 'Scan not found.' });
+  if (!assertScanOwner(scan, req.user!.id)) return res.status(404).json({ detail: 'Scan not found.' });
   if (scan.status !== 'completed') return res.status(409).json({ detail: 'Wait until the website audit is complete before generating fixes.' });
 
   const allIssues = db.getIssuesForScan(scanId);
@@ -464,6 +484,11 @@ apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest,
   const maxItemsRaw = Number(req.body?.max_items);
   const maxItems = Number.isFinite(maxItemsRaw) ? Math.max(1, Math.min(15, Math.floor(maxItemsRaw))) : 15;
   const batch = candidates.slice(0, maxItems);
+  if (batch.length === 0) {
+    return res.json({ fixes: existing, generated_count: 0, remaining_count: 0, provider_mode: process.env.GEMINI_API_KEY ? 'gemini-enabled-with-local-fallback' : 'local-fallback', message: 'No new unresolved issues needed drafts.' });
+  }
+  const credit = consumeCredit(req.user!, 'ai');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
   const generated: FixEntity[] = [];
   let cursor = 0;
 
@@ -524,6 +549,9 @@ apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest,
 });
 
 apiRouter.patch('/fixes/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const currentFix = db.getFix(req.params.id);
+  const parentScan = currentFix ? db.getScan(currentFix.scan_id) : undefined;
+  if (!currentFix || !assertScanOwner(parentScan, req.user!.id)) return res.status(404).json({ detail: 'Fix draft not found.' });
   const updates: { status?: 'draft' | 'approved' | 'rejected'; code_snippet?: string; fix_explanation?: string } = {};
   if (req.body?.status !== undefined) {
     if (!['draft', 'approved', 'rejected'].includes(req.body.status)) {
@@ -550,33 +578,35 @@ apiRouter.patch('/fixes/:id', requireAuth, (req: AuthenticatedRequest, res) => {
 });
 
 apiRouter.post('/ai/chat', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { message, scan_id } = req.body || {};
+  if (typeof message !== 'string' || !message.trim() || message.length > 8000) {
+    return res.status(400).json({ detail: 'Enter a message between 1 and 8,000 characters.' });
+  }
+  let selectedScan: ScanEntity | undefined;
+  if (scan_id) {
+    selectedScan = db.getScan(String(scan_id));
+    if (!assertScanOwner(selectedScan, req.user!.id)) return res.status(404).json({ detail: 'Scan not found.' });
+  }
   const credit = consumeCredit(req.user!, 'ai');
   if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
-  const { message, scan_id } = req.body;
-
-  if (!message) {
-    return res.status(400).json({ detail: 'Message string is required.' });
-  }
 
   let scanContext = undefined;
-  if (scan_id) {
-    const scan = db.getScan(scan_id);
-    if (scan) {
-      const issues = db.getIssuesForScan(scan.id);
-      scanContext = {
-        domain: scan.domain,
-        healthScore: scan.health_score,
-        issues: issues.map(i => ({
-          title: i.title,
-          category: i.category,
-          severity: i.severity,
-          evidence: i.evidence
-        }))
-      };
-    }
+  if (selectedScan) {
+    const scan = selectedScan;
+    const issues = db.getIssuesForScan(scan.id);
+    scanContext = {
+      domain: scan.domain,
+      healthScore: scan.health_score,
+      issues: issues.map(i => ({
+        title: i.title,
+        category: i.category,
+        severity: i.severity,
+        evidence: i.evidence
+      }))
+    };
   }
 
-  const reply = await AIService.answerQuestion(message, scanContext);
+  const reply = await AIService.answerQuestion(message.trim(), scanContext);
   res.json(reply);
 });
 
@@ -584,12 +614,12 @@ apiRouter.post('/ai/chat', requireAuth, async (req: AuthenticatedRequest, res) =
 // 5. KEYWORD & COMPETITOR INTELLIGENCE
 // ==========================================
 apiRouter.post('/market/brief', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { niche, market, goal } = req.body || {};
+  if (typeof niche !== 'string' || !niche.trim() || niche.length > 160) {
+    return res.status(400).json({ detail: 'Enter a niche or market topic up to 160 characters.' });
+  }
   const credit = consumeCredit(req.user!, 'ai');
   if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
-  const { niche, market, goal } = req.body;
-  if (!niche || typeof niche !== 'string' || !niche.trim()) {
-    return res.status(400).json({ detail: 'Enter a niche or market topic.' });
-  }
   const result = await AIService.generateMarketBrief(
     niche,
     typeof market === 'string' ? market : 'Global',
@@ -598,15 +628,15 @@ apiRouter.post('/market/brief', requireAuth, async (req: AuthenticatedRequest, r
   res.json(result);
 });
 apiRouter.post('/keywords/analyze', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const credit = consumeCredit(req.user!, 'keyword');
-  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
-  const { seed_phrase, niche, market } = req.body;
+  const { seed_phrase, niche, market } = req.body || {};
   if (!seed_phrase || typeof seed_phrase !== 'string' || !seed_phrase.trim()) {
     return res.status(400).json({ detail: 'Enter a seed keyword or topic.' });
   }
   if (seed_phrase.length > 180) {
     return res.status(400).json({ detail: 'Seed keyword must be 180 characters or fewer.' });
   }
+  const credit = consumeCredit(req.user!, 'keyword');
+  if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
 
   const strategy = await AIService.generateKeywordStrategy(
     seed_phrase.trim(),

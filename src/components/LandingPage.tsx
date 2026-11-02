@@ -1,8 +1,8 @@
 import React, { FormEvent, useState } from 'react';
 import {
   Activity, ArrowRight, ArrowUpRight, BarChart3, BookOpen, Check, ChevronDown,
-  ChevronRight, CircleGauge, Code2, Compass, FileSearch, Globe, Layers3,
-  ListChecks, LockKeyhole, Menu, Search, ShieldCheck, Sparkles, Target,
+  ChevronRight, CircleGauge, CircleHelp, Code2, Compass, FileSearch, Globe, Layers3,
+  ListChecks, LockKeyhole, Menu, Network, Search, ShieldCheck, Sparkles, Target,
   TrendingUp, Users, X, Zap
 } from 'lucide-react';
 
@@ -14,7 +14,8 @@ interface LandingPageProps {
 
 const features = [
   { icon: CircleGauge, title: 'SEO Performance', text: 'Understand technical health, page signals and the issues that deserve attention first.', id: 'seo-performance', color: 'blue' },
-  { icon: Sparkles, title: 'AI Search Visibility', text: 'Use AI-assisted workflows to explore how brands and topics appear in modern search.', id: 'ai-visibility', color: 'violet' },
+  { icon: CircleHelp, title: 'AEO · Answer Engine Optimization', text: 'Evaluate question coverage, direct answers, page structure and extractable information.', id: 'aeo', color: 'violet' },
+  { icon: Network, title: 'GEO · Generative Engine Optimization', text: 'Strengthen brand/entity clarity, useful evidence, attribution and content context for generative discovery.', id: 'geo', color: 'mint' },
   { icon: Search, title: 'Keyword Research', text: 'Explore relevant keyword ideas, search intent and opportunities for your next page.', id: 'keyword-research', color: 'mint' },
   { icon: Users, title: 'Competitor Analysis', text: 'Review public website signals and compare areas that may need a closer look.', id: 'competitor-analysis', color: 'orange' },
   { icon: FileSearch, title: 'Content Intelligence', text: 'Improve page structure and content clarity with focused, actionable recommendations.', id: 'content-intelligence', color: 'rose' },
@@ -28,8 +29,8 @@ const workflow = [
 ];
 
 const navMenus = [
-  { label: 'Product', links: [{ label: 'SEO Performance', href: '#features' }, { label: 'AI Insights', href: '#ai-insights' }, { label: 'Dashboard preview', href: '#product-preview' }] },
-  { label: 'Solutions', links: [{ label: 'Website owners', href: '#how-it-works' }, { label: 'SEO workflows', href: '#features' }, { label: 'Competitor research', href: '#features' }] },
+  { label: 'Product', links: [{ label: 'SEO Performance', href: '#features' }, { label: 'AEO readiness', href: '#features' }, { label: 'GEO readiness', href: '#features' }, { label: 'Dashboard preview', href: '#product-preview' }] },
+  { label: 'Solutions', links: [{ label: 'Website owners', href: '#how-it-works' }, { label: 'SEO, AEO and GEO workflows', href: '#features' }, { label: 'Competitor research', href: '#features' }] },
   { label: 'Resources', links: [{ label: 'How CROX works', href: '#how-it-works' }, { label: 'Our approach to data', href: '#data-approach' }, { label: 'Feature overview', href: '#features' }] },
 ];
 
@@ -71,7 +72,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
   return (
     <main className="crox-home">
       {announcementVisible && <div className="crox-home-announcement">
-        <div className="crox-home-announcement-inner"><Sparkles size={14} aria-hidden="true" /><span>CROX brings SEO audits, keyword research and AI-assisted insights into one workspace.</span><a href="#features" onClick={() => jumpTo('#features')}>Explore product <ArrowRight size={13} /></a><button type="button" aria-label="Dismiss announcement" onClick={() => setAnnouncementVisible(false)}><X size={14} /></button></div>
+        <div className="crox-home-announcement-inner"><Sparkles size={14} aria-hidden="true" /><span>CROX unites SEO, AEO and GEO workflows in one search-intelligence workspace.</span><a href="#features" onClick={() => jumpTo('#features')}>Explore product <ArrowRight size={13} /></a><button type="button" aria-label="Dismiss announcement" onClick={() => setAnnouncementVisible(false)}><X size={14} /></button></div>
       </div>}
 
       <header className="crox-home-header">
@@ -97,9 +98,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
       <section className="crox-home-hero" id="top">
         <div className="crox-home-hero-grid">
           <div className="crox-home-hero-copy">
-            <div className="crox-home-eyebrow"><span className="crox-home-eyebrow-icon"><Sparkles size={13} /></span> SEO &amp; AI SEARCH ANALYTICS</div>
+            <div className="crox-home-eyebrow"><span className="crox-home-eyebrow-icon"><Sparkles size={13} /></span> SEO · AEO · GEO SEARCH INTELLIGENCE</div>
             <h1>More visibility.<br />More clicks.<br /><span>More growth.</span></h1>
-            <p className="crox-home-hero-lede">CROX helps you understand search performance, uncover SEO opportunities, review website health and organize your next steps in one clear workspace.</p>
+            <p className="crox-home-hero-lede">CROX brings traditional search optimization, answer-engine readiness and generative-search foundations into one workspace—with page-level evidence and clear next steps.</p>
             <form className="crox-home-domain-form" onSubmit={handleDomainSubmit} noValidate>
               <Globe size={18} aria-hidden="true" />
               <label className="crox-home-visually-hidden" htmlFor="crox-domain-input">Website domain</label>
@@ -115,14 +116,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
             <div className="crox-dashboard-window">
               <div className="crox-dashboard-topbar"><div className="crox-dashboard-brand"><img src="/crox-mark.svg" width="23" height="23" alt="" aria-hidden="true" /><b>CROX</b></div><span className="crox-dashboard-demo"><span /> Illustrative data</span><span className="crox-dashboard-profile">C</span></div>
               <div className="crox-dashboard-layout">
-                <aside className="crox-dashboard-sidebar"><div className="crox-dashboard-sidebar-label">WORKSPACE</div><span className="active"><BarChart3 size={14} /> Overview</span><span><FileSearch size={14} /> SEO audit</span><span><Search size={14} /> Keywords</span><span><Users size={14} /> Competitors</span><span><Sparkles size={14} /> AI visibility</span><div className="crox-dashboard-sidebar-footer"><span>ACCOUNT STATUS</span><b><i /> Workspace ready</b></div></aside>
+                <aside className="crox-dashboard-sidebar"><div className="crox-dashboard-sidebar-label">WORKSPACE</div><span className="active"><BarChart3 size={14} /> Overview</span><span><FileSearch size={14} /> SEO audit</span><span><CircleHelp size={14} /> AEO</span><span><Network size={14} /> GEO</span><span><Search size={14} /> Keywords</span><span><Users size={14} /> Competitors</span><span><Sparkles size={14} /> AI visibility</span><div className="crox-dashboard-sidebar-footer"><span>ACCOUNT STATUS</span><b><i /> Workspace ready</b></div></aside>
                 <div className="crox-dashboard-content">
                   <div className="crox-dashboard-heading"><div><span>OVERVIEW</span><h2>Your search workspace</h2></div><span className="crox-dashboard-date"><Activity size={12} /> Sample view</span></div>
                   <div className="crox-dashboard-metrics">
-                    <div><span>Site health</span><b>86<small>/100</small></b><em><Check size={11} /> Example score</em></div>
-                    <div><span>Pages checked</span><b>24</b><em>Illustrative count</em></div>
-                    <div><span>Keyword ideas</span><b>128</b><em>Demo value</em></div>
-                    <div><span>AI mentions</span><b>—</b><em>Provider dependent</em></div>
+                    <div><span>SEO health</span><b>86<small>/100</small></b><em><Check size={11} /> Illustrative score</em></div>
+                    <div><span>AEO readiness</span><b>78<small>/100</small></b><em>Illustrative score</em></div>
+                    <div><span>GEO readiness</span><b>72<small>/100</small></b><em>Illustrative score</em></div>
+                    <div><span>AI citations</span><b>—</b><em>Provider dependent</em></div>
                   </div>
                   <div className="crox-dashboard-panels">
                     <div className="crox-dashboard-chart-card"><div className="crox-dashboard-card-heading"><div><b>Audit overview</b><small>Example visualization</small></div><span>Demo</span></div><div className="crox-dashboard-chart"><div className="crox-dashboard-ylabels"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 420 132" preserveAspectRatio="none" role="img" aria-label="Illustrative rising line chart, not real website performance"><defs><linearGradient id="crox-chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1686ff" stopOpacity=".22" /><stop offset="100%" stopColor="#1686ff" stopOpacity="0" /></linearGradient></defs><path d="M0 103 C20 94 27 105 43 85 S71 95 89 78 S118 92 137 65 S162 80 180 58 S207 74 226 52 S250 68 269 40 S295 58 315 31 S343 49 363 23 S392 35 420 12 V132 H0 Z" fill="url(#crox-chart-fill)"/><path d="M0 103 C20 94 27 105 43 85 S71 95 89 78 S118 92 137 65 S162 80 180 58 S207 74 226 52 S250 68 269 40 S295 58 315 31 S343 49 363 23 S392 35 420 12" fill="none" stroke="#1686ff" strokeWidth="2.6" strokeLinecap="round"/></svg></div><div className="crox-dashboard-xlabels"><span>Week 1</span><span>Week 2</span><span>Week 3</span><span>Week 4</span></div></div>
@@ -142,7 +143,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
       <section className="crox-home-trust-strip" aria-label="CROX product principles"><span className="crox-home-strip-label">A CLEARER WAY TO WORK ON SEARCH</span><div><Search size={18} /><b>Search insights</b></div><div><ShieldCheck size={18} /><b>Transparent data</b></div><div><Target size={18} /><b>Practical priorities</b></div><div><Layers3 size={18} /><b>One workspace</b></div></section>
 
       <section className="crox-home-section crox-home-features" id="features">
-        <div className="crox-home-section-intro"><div className="crox-home-section-kicker"><span /> THE CROX TOOLKIT</div><h2>Everything you need to work <span>smarter in search.</span></h2><p>From technical website checks to keyword discovery and AI-assisted workflows, CROX brings useful search work into one focused place.</p><a className="crox-home-text-link" href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>See how it works <ArrowRight size={15} /></a></div>
+        <div className="crox-home-section-intro"><div className="crox-home-section-kicker"><span /> THE CROX TOOLKIT</div><h2>One workspace for <span>SEO, AEO and GEO.</span></h2><p>Measure classic SEO health, improve direct-answer readiness and strengthen the content foundations that generative systems can understand—then organize the work in one place.</p><a className="crox-home-text-link" href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>See how it works <ArrowRight size={15} /></a></div>
         <div className="crox-home-feature-grid">{features.map(({ icon: Icon, title, text, id, color }, index) => <a className="crox-home-feature-card" href={index === 1 ? '#ai-insights' : '#product-preview'} onClick={() => jumpTo(index === 1 ? '#ai-insights' : '#product-preview')} key={title} id={id}><div className={`crox-home-feature-icon ${color}`}><Icon size={19} /></div><span className="crox-home-feature-arrow"><ArrowUpRight size={16} /></span><h3>{title}</h3><p>{text}</p><span className="crox-home-card-bottom">Explore capability <ArrowRight size={13} /></span></a>)}</div>
       </section>
 

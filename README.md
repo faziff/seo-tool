@@ -5,10 +5,10 @@ CROX is an original SEO workspace built with React, Vite, TypeScript and an Expr
 ## Main areas
 
 - **Public landing page** at `/` and separate `/signup` and `/login` routes.
-- **Workspace overview** with a Semrush-inspired product navigation, persistent per-user projects, scan history and clear connection/demo states for unavailable third-party metrics.
+- **Workspace overview** opens with three separate product cards: SEO, Answer Engine Optimization (AEO) and Generative Engine Optimization (GEO). The three workspaces share one crawl but show separate, evidence-based assessments.
 - **Site Audit and Audit Checklist** for discovered pages and title/meta/H1/canonical/alt/schema/Open Graph/HTTPS checks.
 - **Keyword Research** with search-intent labels, topic clusters, filtering and CSV export. Search volume and CPC are only shown as live when a data provider is configured.
-- **Fix Center, SEO Analysis, Performance, Accessibility, Technical Issues, Market Research, Reports and Settings**.
+- **AEO workspace** checks question coverage, direct answer patterns, heading structure, structured data and extractable content. **GEO workspace** checks entity clarity, evidence structure, authorship/freshness, topical depth and metadata/schema context. SEO Analysis, Fix Center, Performance, Accessibility, Technical Issues, Market Research, Reports and Settings remain available.
 - **Account-scoped storage and daily credits** for audits, AI requests and keyword research. Default daily allowances are 3 audits, 15 AI requests and 5 keyword searches, with optional bonus credits for administrators.
 - **Light/dark dashboard theme**, with the choice saved in the browser.
 
@@ -74,6 +74,8 @@ npm run test:backend
 
 `npm run lint` runs TypeScript's no-emit check. `npm run test:backend` runs the Node backend test harness. Install dependencies first. Google sign-in stays disabled until all three Google OAuth variables are set; email/password authentication works without them. The separately maintained Python tests under `backend/tests` apply only to the FastAPI implementation.
 
-## Honest data scope
+## SEO, AEO and GEO data scope
+
+AEO and GEO scores are crawl-derived readiness assessments, not measurements of actual ChatGPT, Gemini, Perplexity or Google AI Overviews mentions, citations, answer inclusion or ranking. Older scans need to be re-crawled before the new AEO/GEO signal snapshot can be assessed. Structured data is treated as context only and must match visible page content.
 
 Crawler findings are generated from the publicly reachable pages inspected during a scan. Keyword suggestions and difficulty labels may be heuristic; verified search volume/CPC, rankings, a full inbound backlink index, and competitor traffic analytics require their respective live data providers. A saved fix is a reviewable draft; approval does not automatically deploy code to the audited site.
