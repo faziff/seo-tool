@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
-  AlertCircle, CheckCircle2, Cloud, ExternalLink, Eye, EyeOff, Gauge, Globe2,
+  Activity, AlertCircle, CheckCircle2, Cloud, ExternalLink, Eye, EyeOff, Gauge, Globe2,
   KeyRound, LockKeyhole, RefreshCw, Save, Settings2, ShieldCheck, SlidersHorizontal,
-  Sparkles, UserRound, XCircle, Database, CreditCard, BellRing
+  Sparkles, UserRound, XCircle, Database, CreditCard, BellRing, Trash2, PlugZap, ChevronUp, ChevronDown,
 } from 'lucide-react';
-import { changeUserPassword, getIntegrationsStatus } from '../services/api';
+import { changeUserPassword, getIntegrationsStatus, getAIProviderSettings, getAIProviderUsage, saveAIProviderKey, testAIProviderConnection, removeAIProviderKey, saveAIProviderPreferences, updateAIProviderModel, type AIProviderUsageResponse, type AIProviderSettingsResponse, type AIProviderCardSetting } from '../services/api';
 import type { User } from '../types';
 
 interface IntegrationStatus {
@@ -40,12 +40,31 @@ export const SettingsPage: React.FC<{ user?: User | null; theme?: 'light' | 'dar
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
+  const [aiProviderSettings, setAIProviderSettings] = useState<AIProviderSettingsResponse | null>(null);
+  const [providerDrafts, setProviderDrafts] = useState<Record<string, string>>({});
+  const [providerModelDrafts, setProviderModelDrafts] = useState<Record<string, string>>({});
+  const [providerRevealed, setProviderRevealed] = useState<Record<string, boolean>>({});
+  const [providerBusy, setProviderBusy] = useState<string | null>(null);
+  const [providerFeedback, setProviderFeedback] = useState<Record<string, { type: 'success' | 'error' | 'info'; text: string }>>({});
+  const [providerPriority, setProviderPriority] = useState<AIProviderCardSetting['provider'][]>([]);
+  const [providerFallback, setProviderFallback] = useState(true);
+  const [providerUsage, setProviderUsage] = useState<AIProviderUsageResponse | null>(null);
 
   useEffect(() => {
     let active = true;
     getIntegrationsStatus()
       .then((data) => { if (active) setIntegrations(data); })
       .catch(() => { if (active) setStatusError('Integration status is unavailable. Check that the CROX API server is running.'); });
+    getAIProviderSettings()
+      .then((data) => {
+        if (!active) return;
+        setAIProviderSettings(data);
+        setProviderPriority(data.order);
+        setProviderFallback(data.fallback_enabled);
+        setProviderModelDrafts(Object.fromEntries(data.providers.map(item => [item.provider, item.model])));
+      })
+      .catch(() => { if (active) setProviderFeedback({ global: { type: 'error', text: 'Could not load AI provider settings. Check that the latest CROX backend is running.' } }); });
+    getAIProviderUsage(30).then(data => { if (active) setProviderUsage(data); }).catch(() => { /* Usage panel will show an unavailable state. */ });
     try {
       const raw = localStorage.getItem('crox_workspace_preferences');
       if (raw) {
@@ -90,6 +109,94 @@ export const SettingsPage: React.FC<{ user?: User | null; theme?: 'light' | 'dar
     } finally {
       setPasswordBusy(false);
     }
+  };
+
+  const refreshProviderSettings = async () => {
+    const data = await getAIProviderSettings();
+    setAIProviderSettings(data);
+    setProviderPriority(data.order);
+    setProviderFallback(data.fallback_enabled);
+    setProviderModelDrafts(previous => ({ ...Object.fromEntries(data.providers.map(item => [item.provider, item.model])), ...previous }));
+  };
+
+  const saveProvider = async (provider: AIProviderCardSetting['provider']) => {
+    const apiKey = (providerDrafts[provider] || '').trim();
+    if (!apiKey) {
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: 'Paste the API key first.' } }));
+      return;
+    }
+    setProviderBusy(provider);
+    setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'info', text: 'Saving encrypted key…' } }));
+    try {
+      const result: any = await saveAIProviderKey(provider, apiKey, providerModelDrafts[provider] || '');
+      setProviderDrafts(previous => ({ ...previous, [provider]: '' }));
+      if (result?.settings) setAIProviderSettings(result.settings);
+      else await refreshProviderSettings();
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'success', text: result?.message || 'Provider key saved securely.' } }));
+    } catch (error) {
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: error instanceof Error ? error.message : 'Could not save this provider key.' } }));
+    } finally { setProviderBusy(null); }
+  };
+
+  const saveProviderModel = async (provider: AIProviderCardSetting['provider']) => {
+    const model = (providerModelDrafts[provider] || '').trim();
+    if (!model) return setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: 'Enter a model name.' } }));
+    setProviderBusy(provider);
+    try {
+      const result: any = await updateAIProviderModel(provider, model);
+      if (result?.settings) setAIProviderSettings(result.settings);
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'success', text: 'Model preference saved.' } }));
+    } catch (error) {
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: error instanceof Error ? error.message : 'Could not save model preference.' } }));
+    } finally { setProviderBusy(null); }
+  };
+
+  const testProvider = async (provider: AIProviderCardSetting['provider']) => {
+    setProviderBusy(provider);
+    setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'info', text: 'Testing a real provider response…' } }));
+    try {
+      const result: any = await testAIProviderConnection(provider);
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'success', text: `${result.provider} connected · ${result.model}` } }));
+      await refreshProviderSettings();
+      getAIProviderUsage(30).then(setProviderUsage).catch(() => undefined);
+    } catch (error) {
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: error instanceof Error ? error.message : 'Provider connection test failed.' } }));
+    } finally { setProviderBusy(null); }
+  };
+
+  const removeProvider = async (provider: AIProviderCardSetting['provider']) => {
+    if (!window.confirm(`Remove the saved ${provider} API key from this account?`)) return;
+    setProviderBusy(provider);
+    try {
+      const result: any = await removeAIProviderKey(provider);
+      if (result?.settings) setAIProviderSettings(result.settings);
+      else await refreshProviderSettings();
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'success', text: 'Saved account key removed.' } }));
+    } catch (error) {
+      setProviderFeedback(previous => ({ ...previous, [provider]: { type: 'error', text: error instanceof Error ? error.message : 'Could not remove provider key.' } }));
+    } finally { setProviderBusy(null); }
+  };
+
+  const moveProviderPriority = (provider: AIProviderCardSetting['provider'], direction: -1 | 1) => {
+    setProviderPriority(previous => {
+      const current = [...previous];
+      const index = current.indexOf(provider);
+      const next = index + direction;
+      if (index < 0 || next < 0 || next >= current.length) return current;
+      [current[index], current[next]] = [current[next], current[index]];
+      return current;
+    });
+  };
+
+  const saveProviderOrder = async () => {
+    setProviderBusy('priority');
+    try {
+      const result: any = await saveAIProviderPreferences(providerPriority, providerFallback);
+      if (result?.settings) setAIProviderSettings(result.settings);
+      setSavedMessage('NOVA provider priority saved.');
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : 'Could not save provider priority.');
+    } finally { setProviderBusy(null); }
   };
 
   const Status = ({ configured, label }: { configured?: boolean; label?: string }) => configured
@@ -141,16 +248,67 @@ export const SettingsPage: React.FC<{ user?: User | null; theme?: 'light' | 'dar
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Globe2 size={16} /></span><div><h2 className="text-sm font-extrabold text-slate-900">Workspace identity</h2><p className="mt-1 text-[10px] text-slate-500">Signed-in account details</p></div></div><dl className="mt-4 space-y-3 text-[10px]"><div><dt className="text-slate-400">Name</dt><dd className="mt-0.5 font-semibold text-slate-800">{user?.name || '—'}</dd></div><div><dt className="text-slate-400">Email</dt><dd className="mt-0.5 break-all font-semibold text-slate-800">{user?.email || '—'}</dd></div><div><dt className="text-slate-400">Plan</dt><dd className="mt-0.5 font-semibold capitalize text-slate-800">{user?.plan || 'Free'}</dd></div><div><dt className="text-slate-400">Member since</dt><dd className="mt-0.5 font-semibold text-slate-800">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}</dd></div></dl></div></section>
       </div>}
 
-      {tab === 'integrations' && <div className="space-y-5"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-sm font-extrabold text-slate-900">Connected services & data sources</h2><p className="mt-1 text-[10px] text-slate-500">Statuses are read from the CROX server. API secrets must only be configured in the server environment.</p></div><button type="button" onClick={() => { setStatusError(''); getIntegrationsStatus().then(setIntegrations).catch(() => setStatusError('Could not refresh integration status.')); }} className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] font-bold text-slate-600 hover:bg-slate-50"><RefreshCw size={12} /> Refresh status</button></div>
+      {tab === 'integrations' && <div className="space-y-5"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-sm font-extrabold text-slate-900">Connected services & data sources</h2><p className="mt-1 text-[10px] text-slate-500">Connect your own AI providers here. Keys are encrypted on the server and never sent back to the browser.</p></div><button type="button" onClick={() => { setStatusError(''); getIntegrationsStatus().then(setIntegrations).catch(() => setStatusError('Could not refresh integration status.')); }} className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] font-bold text-slate-600 hover:bg-slate-50"><RefreshCw size={12} /> Refresh status</button></div>
+        <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-cyan-50 p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#100d21] text-cyan-200"><PlugZap size={17} /></span><div><h3 className="text-xs font-extrabold text-slate-900">NOVA multi-provider setup</h3><p className="mt-1 max-w-2xl text-[10px] leading-5 text-slate-600">Add several provider keys, choose which one NOVA tries first, and keep fallback providers ready. API usage may be billed by each provider.</p></div></div><span className="rounded-full border border-violet-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-violet-800">6 providers supported</span></div>
+          {!aiProviderSettings?.encryption_ready && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-5 text-amber-900"><strong>Secure key storage needs one server secret.</strong> Set a stable <code>AI_KEYS_ENCRYPTION_SECRET</code> (32+ characters) in your hosting environment, or set a stable <code>JWT_SECRET</code>. This is an encryption secret, not an AI provider key. Never commit it to GitHub.</div>}
+          {providerFeedback.global && <div role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-5 text-rose-800">{providerFeedback.global.text}</div>}
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {(aiProviderSettings?.providers || []).map(provider => {
+              const feedback = providerFeedback[provider.provider];
+              const busy = providerBusy === provider.provider;
+              return <article key={provider.provider} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+                <div className="flex items-start justify-between gap-2"><div><h4 className="text-[11px] font-extrabold text-slate-900">{provider.label}</h4><p className="mt-1 text-[9px] text-slate-500">{provider.source === 'account' ? 'Encrypted account key' : provider.source === 'server' ? 'Backend environment key pool' : provider.source === 'mixed' ? 'Account key + backend key pool' : 'Not connected yet'} · {provider.key_count} key(s) ready</p></div><span className={`rounded-full border px-2 py-1 text-[8px] font-bold ${provider.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{provider.configured ? 'Configured' : 'Not connected'}</span></div>
+                <label className="mt-3 block"><span className="mb-1 block text-[9px] font-semibold text-slate-600">Model</span><input value={providerModelDrafts[provider.provider] ?? provider.model} onChange={event => setProviderModelDrafts(previous => ({ ...previous, [provider.provider]: event.target.value }))} placeholder={provider.model} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-800 outline-none focus:border-violet-400" /></label>
+                <label className="mt-2 block"><span className="mb-1 block text-[9px] font-semibold text-slate-600">Add an account key (optional backup)</span><div className="flex gap-2"><input type={providerRevealed[provider.provider] ? 'text' : 'password'} autoComplete="off" value={providerDrafts[provider.provider] || ''} onChange={event => setProviderDrafts(previous => ({ ...previous, [provider.provider]: event.target.value }))} placeholder={provider.key_hint || 'Paste one authorized provider key'} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-800 outline-none focus:border-violet-400" /><button type="button" onClick={() => setProviderRevealed(previous => ({ ...previous, [provider.provider]: !previous[provider.provider] }))} className="grid w-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label={providerRevealed[provider.provider] ? 'Hide API key' : 'Show API key'}>{providerRevealed[provider.provider] ? <EyeOff size={13} /> : <Eye size={13} />}</button></div></label>
+                {feedback && <p role="status" className={`mt-2 rounded-lg px-2.5 py-2 text-[9px] leading-4 ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : feedback.type === 'error' ? 'bg-rose-50 text-rose-800' : 'bg-sky-50 text-sky-800'}`}>{feedback.text}</p>}
+                <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy || !providerDrafts[provider.provider]?.trim()} onClick={() => void saveProvider(provider.provider)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-950 px-3 py-2 text-[9px] font-bold text-white hover:bg-violet-950 disabled:cursor-not-allowed disabled:opacity-40"><Save size={11} /> Save key</button><button type="button" disabled={busy || !provider.configured} onClick={() => void testProvider(provider.provider)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[9px] font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw size={11} /> Test connection</button>{(provider.source === 'account' || provider.source === 'mixed') && <button type="button" disabled={busy} onClick={() => void saveProviderModel(provider.provider)} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-[9px] font-bold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"><Save size={11} /> Save model</button>}{(provider.source === 'account' || provider.source === 'mixed') && <button type="button" disabled={busy} onClick={() => void removeProvider(provider.provider)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-2 text-[9px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-40"><Trash2 size={11} /> Remove key</button>}</div>
+              </article>;
+            })}
+            {!aiProviderSettings && <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-[10px] text-slate-500">Loading AI provider settings…</div>}
+          </div>
+          <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50/70 p-3.5">
+            <div className="flex items-start gap-2"><KeyRound size={14} className="mt-0.5 shrink-0 text-sky-700" /><div className="min-w-0"><h4 className="text-[10px] font-extrabold text-sky-950">Multiple server keys (recommended for deployments)</h4><p className="mt-1 text-[9px] leading-5 text-sky-900/80">Add secrets in your hosting provider’s environment settings—not in frontend code or Git. Use one key per line or comma-separated in a plural variable. Example:</p><pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[9px] leading-5 text-emerald-200">OPENAI_API_KEYS=key_one,key_two{`\n`}GEMINI_API_KEYS=key_one,key_two{`\n`}ANTHROPIC_API_KEYS=key_one,key_two{`\n`}GROQ_API_KEYS=key_one,key_two</pre><p className="mt-2 text-[9px] leading-5 text-sky-900/80">CROX reads these only on the backend. Do not place multiple keys from the same organisation in an attempt to evade its shared quota; on quota exhaustion CROX moves to the next separately configured provider.</p></div></div>
+          </div>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3.5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div><h4 className="text-[10px] font-extrabold text-slate-800">Provider fallback priority</h4><p className="mt-1 text-[9px] text-slate-500">Move providers up or down. NOVA tries the first configured provider, then follows this order when fallback is enabled.</p></div>
+              <div className="flex items-center gap-2"><button type="button" role="switch" aria-checked={providerFallback} onClick={() => setProviderFallback(value => !value)} className={`relative h-9 rounded-lg px-3 text-left text-[9px] font-bold ${providerFallback ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{providerFallback ? 'Fallback enabled' : 'Fallback disabled'}<span className={`ml-2 inline-block h-2.5 w-2.5 rounded-full ${providerFallback ? 'bg-emerald-500' : 'bg-slate-400'}`} /></button><button type="button" disabled={providerBusy === 'priority'} onClick={() => void saveProviderOrder()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-[9px] font-bold text-white hover:bg-violet-800 disabled:opacity-50"><Save size={11} /> Save order</button></div>
+            </div>
+            <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+              {providerPriority.map((name, index) => {
+                const meta = aiProviderSettings?.providers.find(item => item.provider === name);
+                return <div key={name} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white text-[9px] font-extrabold text-slate-500">{index + 1}</span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-[9px] text-slate-800">{meta?.label || name}</strong><small className={`block text-[8px] ${meta?.configured ? 'text-emerald-700' : 'text-slate-400'}`}>{meta?.configured ? 'Configured' : 'Not configured'}</small></span>
+                  <button type="button" disabled={index === 0} onClick={() => moveProviderPriority(name, -1)} aria-label={`Move ${meta?.label || name} earlier`} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-violet-50 disabled:opacity-30"><ChevronUp size={13} /></button>
+                  <button type="button" disabled={index === providerPriority.length - 1} onClick={() => moveProviderPriority(name, 1)} aria-label={`Move ${meta?.label || name} later`} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-violet-50 disabled:opacity-30"><ChevronDown size={13} /></button>
+                </div>;
+              })}
+            </div>
+          </div>
+          <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-50 text-indigo-700"><Activity size={14} /></span><div><h4 className="text-[10px] font-extrabold text-slate-900">NOVA provider usage & failover log</h4><p className="mt-0.5 text-[9px] text-slate-500">Last {providerUsage?.period_days || 30} days · provider attempts, not provider invoices</p></div></div><button type="button" onClick={() => getAIProviderUsage(30).then(setProviderUsage).catch(() => setStatusError('Provider usage could not be refreshed.'))} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"><RefreshCw size={10} className="mr-1 inline" />Refresh</button></div>
+            <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">{[
+              ['Requests', providerUsage?.totals.calls ?? 0],
+              ['Successful', providerUsage?.totals.successful ?? 0],
+              ['Fallback attempts', providerUsage?.totals.fallback_attempts ?? 0],
+              ['Rate/quota events', (providerUsage?.totals.rate_limited ?? 0) + (providerUsage?.totals.quota_events ?? 0)]
+            ].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-lg font-extrabold tabular-nums text-slate-900">{value}</p></div>)}</div>
+            {providerUsage?.providers.length ? <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[540px] text-left"><thead><tr className="border-b border-slate-100 text-[8px] font-bold uppercase tracking-wider text-slate-400"><th className="py-2">Provider</th><th className="py-2">Calls</th><th className="py-2">Success</th><th className="py-2">Rate limits</th><th className="py-2">Avg latency</th><th className="py-2">Last used</th></tr></thead><tbody className="divide-y divide-slate-100">{providerUsage.providers.map(item => <tr key={item.provider} className="text-[9px] text-slate-600"><td className="py-2 font-bold capitalize text-slate-800">{item.provider}</td><td className="py-2 tabular-nums">{item.calls}</td><td className="py-2 tabular-nums text-emerald-700">{item.successful}</td><td className="py-2 tabular-nums">{item.rate_limited + item.quota_events}</td><td className="py-2 tabular-nums">{item.average_latency_ms ? `${item.average_latency_ms} ms` : '—'}</td><td className="py-2">{item.last_used_at ? new Date(item.last_used_at).toLocaleString() : '—'}</td></tr>)}</tbody></table></div> : <p className="mt-3 rounded-lg bg-slate-50 px-3 py-3 text-[9px] text-slate-500">{providerUsage ? 'No AI provider attempts recorded yet. Run an Ask NOVA request or test a connection to populate this panel.' : 'Usage records are unavailable until the backend usage endpoint responds.'}</p>}
+            <p className="mt-3 text-[8px] leading-4 text-slate-400">CROX tracks request counts and latency only. Provider token billing and monetary costs are not available unless a provider exposes those usage records. Prompts and API keys are never stored in this log.</p>
+          </section>
+          <p className="mt-3 text-[9px] leading-4 text-slate-500">NOVA uses the preferred configured provider first. It retries temporary errors with bounded backoff, rotates to another configured key only for authentication failures, and switches provider for quota/availability failures. Safety, permission and policy refusals are not bypassed. Provider plans and charges remain separate from CROX.</p>
+        </section>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <IntegrationCard title="NOVA · AI Provider" description={`${integrations?.ai?.provider || 'AI provider'} · ${integrations?.ai?.model || 'Model not reported'}. ${integrations?.ai?.note || 'Connect a supported provider for live AI responses.'}`} configured={integrations?.ai?.configured} icon={Sparkles} env="AI_PROVIDER + provider API key" />
+          <IntegrationCard title="NOVA · Multi-provider AI" description={`${integrations?.ai?.provider || 'AI provider'} · ${integrations?.ai?.model || 'Model not reported'}. ${integrations?.ai?.note || 'Connect a supported provider for live AI responses.'}`} configured={integrations?.ai?.configured} icon={Sparkles} env="Settings → Integrations or server AI keys" />
           <IntegrationCard title="Google PageSpeed Insights" description="Lighthouse and field/lab performance diagnostics when supported by the API response." configured={integrations?.pagespeed?.configured} icon={Gauge} env="PAGESPEED_API_KEY" />
           <IntegrationCard title="DataForSEO" description="Live keyword volume and CPC data for supported countries and languages." configured={integrations?.dataforseo?.configured} icon={Database} env="DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD" />
           <IntegrationCard title="External NOVA Agent" description="Optional external agent endpoint for custom agent orchestration." configured={integrations?.agent?.configured} icon={Cloud} env="AGENT_API_URL + AGENT_API_KEY" />
           <IntegrationCard title="Google Search Console" description="Search performance, query clicks and impressions are not connected in this build." configured={integrations?.google_search_console?.status === 'connected'} icon={SearchConsoleIcon} env="OAuth integration not implemented" detail="Do not treat crawl-derived checks as Search Console performance data." />
           <IntegrationCard title="Billing provider" description="Subscription checkout, invoices and payment webhooks are not implemented in this build." configured={integrations?.stripe_billing?.status === 'connected'} icon={CreditCard} env="Billing integration not implemented" />
         </div>
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4"><div className="flex items-start gap-3"><KeyRound size={16} className="mt-0.5 shrink-0 text-indigo-700" /><div><p className="text-[10px] font-extrabold text-indigo-950">Configure provider credentials safely</p><p className="mt-1 text-[10px] leading-5 text-indigo-900/80">Add the listed variables to the server-side <code>.env</code> file or your hosting provider's environment settings, then restart the Node.js service. Never place private keys in React components, browser storage or committed source files.</p></div></div></div>
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4"><div className="flex items-start gap-3"><KeyRound size={16} className="mt-0.5 shrink-0 text-indigo-700" /><div><p className="text-[10px] font-extrabold text-indigo-950">Other server-side integrations</p><p className="mt-1 text-[10px] leading-5 text-indigo-900/80">The six NOVA AI keys above can be added securely from this screen. PageSpeed, DataForSEO and the optional external agent still use server environment variables. Never place private keys in React components, browser storage or committed source files.</p></div></div></div>
       </div>}
 
       {tab === 'security' && <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,.8fr)]">

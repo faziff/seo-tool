@@ -14,7 +14,7 @@ function classifyProviderError(err: any): { code: AiErrorCode; message: string }
     return { code: 'network', message: 'CROX could not reach the configured AI provider. Check outbound network access from the server.' };
   }
   if (/api.?key|permission|401|403|invalid/i.test(lower)) {
-    return { code: 'missing_key', message: 'The configured AI provider key is missing or rejected. Check its server environment setting.' };
+    return { code: 'missing_key', message: 'The configured AI provider key is missing or rejected. Check Settings → Integrations and the provider key/model configuration.' };
   }
   return { code: 'network', message: raw.slice(0, 240) || 'AI provider request failed.' };
 }
@@ -27,9 +27,10 @@ export class AIService {
   public static async generateKeywordStrategy(
     seedPhrase: string,
     niche = 'General',
-    market = 'Global'
+    market = 'Global',
+    userId?: number
   ): Promise<{ keywords: KeywordResult[]; ai_mode: AIProviderName | 'heuristic'; provider_status: string }> {
-    const ai = getAIProviderStatus();
+    const ai = getAIProviderStatus(userId);
     if (ai.configured) {
       try {
         const prompt = `You are NOVA, a careful SEO keyword strategist working inside CROX. Create 16 useful keyword ideas for the business.
@@ -39,7 +40,7 @@ Target market: ${market}
 
 Return only valid JSON with this shape: {"keywords":[{"keyword":"...","intent":"Informational|Commercial|Transactional|Navigational","difficulty_score":35,"cluster":"..."}]}
 Rules: cover informational, comparison, purchase, local (if relevant), and long-tail intent; avoid duplicate or nonsensical phrases; make ideas specific to the niche and market. difficulty_score is an ESTIMATE from 0 to 100, not measured SERP data. Do not include any search volume, CPC, rankings, traffic or claims of live search demand. Return 12-18 ideas.`;
-        const response = await generateAIText(prompt);
+        const response = await generateAIText(prompt, userId);
         const body = response.text || '';
         const match = body.match(/\{[\s\S]*\}/);
         if (match) {
@@ -117,18 +118,19 @@ Rules: cover informational, comparison, purchase, local (if relevant), and long-
     return {
       keywords: mergedKeywords,
       ai_mode: 'heuristic',
-      provider_status: 'Context-aware keyword expansion is active. Configure GEMINI_API_KEY, HERMES_API_KEY, OPENROUTER_API_KEY or GROQ_API_KEY for NOVA-generated suggestions. Live search volume and CPC require a separate data provider.'
+      provider_status: 'Context-aware keyword expansion is active. Connect Gemini, OpenAI, Anthropic, OpenRouter, Groq or Mistral in Settings for NOVA-generated suggestions. Live search volume and CPC require a separate data provider.'
     };
   }
   public static async generateMarketBrief(
     niche: string,
     market: string,
-    goal: string
+    goal: string,
+    userId?: number
   ): Promise<{ brief: string; ai_mode: AIProviderName | 'heuristic'; note: string }> {
     const cleanNiche = niche.trim().slice(0, 180) || 'General business';
     const cleanMarket = market.trim().slice(0, 120) || 'Global';
     const cleanGoal = goal.trim().slice(0, 320) || 'Grow qualified organic traffic';
-    const ai = getAIProviderStatus();
+    const ai = getAIProviderStatus(userId);
     if (ai.configured) {
       try {
         const prompt = `You are NOVA, CROX's practical market and organic-search research strategist.
@@ -138,7 +140,7 @@ Target location / audience: ${cleanMarket}
 Business goal: ${cleanGoal}
 
 Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clusters, (3) competitor positioning questions, (4) a practical content/landing-page plan, (5) a 30-day validation checklist. Use short headings and bullets. Clearly distinguish hypotheses from verified facts. You have not been given live SERP, trend, traffic, volume, CPC, survey, or competitor data; do not invent market sizes, rankings, traffic or volumes and do not claim live research was performed. Make the brief useful and actionable.`;
-        const response = await generateAIText(prompt);
+        const response = await generateAIText(prompt, userId);
         const brief = response.text?.trim();
         if (brief) return {
           brief,
@@ -151,7 +153,7 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
     }
     return {
       ai_mode: 'heuristic',
-      note: 'Starter brief generated locally. Configure GEMINI_API_KEY, HERMES_API_KEY, OPENROUTER_API_KEY or GROQ_API_KEY for a personalized NOVA response. No live market metrics are claimed.',
+      note: 'Starter brief generated locally. Connect an AI provider in Settings for a personalized NOVA response. No live market metrics are claimed.',
       brief: `## Market starting point: ${cleanNiche}\n\n### Audience hypotheses\n- First-time buyers who need a clear explanation of the problem and available options.\n- Buyers comparing solutions, pricing, service levels and credibility.\n- Existing users looking for better workflows, alternatives or specialist help.\n\n### Search-intent clusters\n- Learn: beginner guides, how-to questions and definitions related to ${cleanNiche}.\n- Compare: best options, reviews, alternatives and versus pages.\n- Decide: pricing, packages, quotes, delivery or service-area details.\n- Trust: examples, case studies, FAQs, guarantees and credentials.\n- Localize: location-specific questions for ${cleanMarket}.\n\n### Competitor positioning questions\n- What promise appears above the fold on each competitor homepage?\n- Which audiences, use cases, proof points and FAQs do they emphasize?\n- Which customer questions are not clearly answered on your current pages?\n\n### Suggested 30-day validation plan\n1. Review 5-10 real search results for each high-priority intent and record the page types that rank.\n2. Speak with 3-5 target customers or review authentic support/sales questions.\n3. Publish one focused landing page and two supporting articles for the strongest problem cluster.\n4. Track impressions, clicks and conversions in Google Search Console and analytics, then revise based on evidence.\n\n**Goal to optimize for:** ${cleanGoal}. Treat these as starting hypotheses; verify demand and competition before committing budget.`
     };
   }
@@ -162,7 +164,8 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
       domain?: string;
       healthScore?: number;
       issues?: Array<{ title: string; category: string; severity: string; evidence: string }>;
-    }
+    },
+    userId?: number
   ): Promise<{ reply: string; suggestions: string[]; error_code?: AiErrorCode; error_message?: string }> {
     if (agentConfigured()) {
       const agent = await callExternalAgent({ message, context: scanContext as Record<string, unknown> });
@@ -173,10 +176,10 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
         };
       }
       if (agent.used && agent.error) {
-        return this.answerQuestionLocal(message, scanContext, { code: 'agent', message: agent.error });
+        return this.answerQuestionLocal(message, scanContext, { code: 'agent', message: agent.error }, userId);
       }
     }
-    return this.answerQuestionLocal(message, scanContext);
+    return this.answerQuestionLocal(message, scanContext, undefined, userId);
   }
 
   private static async answerQuestionLocal(
@@ -186,13 +189,14 @@ Include: (1) likely customer segments and pains, (2) 4-6 search-intent/topic clu
       healthScore?: number;
       issues?: Array<{ title: string; category: string; severity: string; evidence: string }>;
     },
-    priorError?: { code: AiErrorCode; message: string }
+    priorError?: { code: AiErrorCode; message: string },
+    userId?: number
   ): Promise<{ reply: string; suggestions: string[]; error_code?: AiErrorCode; error_message?: string }> {
-    const ai = getAIProviderStatus();
+    const ai = getAIProviderStatus(userId);
     const missingKey = !ai.configured;
 
-    let systemPrompt = `You are NOVA, CROX's elite technical SEO advisor and web performance consultant.
-Your role is to help users understand crawl findings, fix indexation blockers, write semantic schema markup, and optimize their websites.
+    let systemPrompt = `You are NOVA, CROX's search visibility and growth copilot across SEO, AEO (Answer Engine Optimization), and GEO (Generative Engine Optimization).
+Help users understand crawl evidence, improve answer extraction and entity clarity, strengthen generative-search readiness, fix indexation blockers, write semantic schema markup, and prioritize measurable website improvements.
 Keep advice concise, evidence-based, and actionable with exact code snippets where helpful.
 Reply in the language used by the user: English for English, Urdu script for Urdu, and Roman Urdu when the user writes Roman Urdu. Do not switch languages unnecessarily.
 Never invent metrics. Explain clearly how search crawlers interpret technical issues.`;
@@ -205,7 +209,7 @@ Never invent metrics. Explain clearly how search crawlers interpret technical is
 
     if (ai.configured) {
       try {
-        const response = await generateAIText(`${systemPrompt}\n\nUser Question: ${message}`);
+        const response = await generateAIText(`${systemPrompt}\n\nUser Question: ${message}`, userId);
 
         const reply = (response.text || '').trim();
         if (reply) {
@@ -304,12 +308,12 @@ Add this script directly into the \`<head>\` of your homepage:
     evidence: string;
     explanation: string;
     recommendation?: string;
-  }): Promise<{ fix_explanation: string; code_snippet: string; provider: AIProviderName | 'fallback' }> {
-    const ai = getAIProviderStatus();
+  }, userId?: number): Promise<{ fix_explanation: string; code_snippet: string; provider: AIProviderName | 'fallback' }> {
+    const ai = getAIProviderStatus(userId);
 
     if (ai.configured) {
       try {
-        const response = await generateAIText(`You are NOVA, a careful senior technical SEO engineer inside CROX. Draft a safe, specific remediation for one audited website issue.\n\nIssue: ${issue.title}\nCategory: ${issue.category}\nAffected URL: ${issue.affected_url}\nObserved evidence: ${issue.evidence}\nAudit explanation: ${issue.explanation}\nExisting recommendation: ${issue.recommendation || 'Not provided'}\n\nReturn ONLY valid JSON with two string fields: \"fix_explanation\" and \"code_snippet\".\nRequirements:\n- Give a practical fix that directly matches the issue; do not invent the site's business, page subject, CMS, or content.\n- For metadata, provide a clearly marked template/example rather than pretending a placeholder is final copy.\n- Prefer HTML snippets for on-page metadata, and include implementation guidance when the fix requires server/configuration changes.\n- Never claim you changed the live website. Never include credentials, API keys, or destructive commands.\n- Keep the explanation concise but actionable. If the evidence is insufficient, state what the site owner must confirm. Return JSON only.`);
+        const response = await generateAIText(`You are NOVA, a careful senior technical SEO engineer inside CROX. Draft a safe, specific remediation for one audited website issue.\n\nIssue: ${issue.title}\nCategory: ${issue.category}\nAffected URL: ${issue.affected_url}\nObserved evidence: ${issue.evidence}\nAudit explanation: ${issue.explanation}\nExisting recommendation: ${issue.recommendation || 'Not provided'}\n\nReturn ONLY valid JSON with two string fields: \"fix_explanation\" and \"code_snippet\".\nRequirements:\n- Give a practical fix that directly matches the issue; do not invent the site's business, page subject, CMS, or content.\n- For metadata, provide a clearly marked template/example rather than pretending a placeholder is final copy.\n- Prefer HTML snippets for on-page metadata, and include implementation guidance when the fix requires server/configuration changes.\n- Never claim you changed the live website. Never include credentials, API keys, or destructive commands.\n- Keep the explanation concise but actionable. If the evidence is insufficient, state what the site owner must confirm. Return JSON only.`, userId);
 
         const body = response.text || '';
         const match = body.match(/\{[\s\S]*\}/);
@@ -326,7 +330,7 @@ Add this script directly into the \`<head>\` of your homepage:
       }
     }
 
-    // A local, predictable fallback is available when Gemini is not configured or unavailable.
+    // A local, predictable fallback is available when no NOVA provider is configured or available.
     const title = String(issue.title || '').toLowerCase();
     const rule = `${title} ${issue.category || ''}`.toLowerCase();
     const safeUrl = String(issue.affected_url || 'https://example.com/page')

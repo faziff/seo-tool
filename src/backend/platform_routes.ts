@@ -332,8 +332,9 @@ platformRouter.post('/keywords/research', requireAuth, async (req: Authenticated
       language: String(req.body?.language || 'English'),
       niche: String(req.body?.niche || 'General').slice(0, 120),
       website: String(req.body?.website || '').trim() || undefined,
-      goal: String(req.body?.goal || 'Grow qualified organic traffic').slice(0, 240)
-    });
+      goal: String(req.body?.goal || 'Grow qualified organic traffic').slice(0, 240),
+      use_ai: req.body?.use_ai === true
+    }, req.user!.id);
     res.json({ ...result, credits: credit.snapshot });
   } catch (err: any) {
     res.status(502).json({ detail: err?.message || 'Keyword research failed.' });
@@ -404,7 +405,8 @@ platformRouter.post('/content/ideas', requireAuth, async (req: AuthenticatedRequ
   const result = await AIService.generateMarketBrief(
     topic,
     String(req.body?.market || 'Pakistan'),
-    String(req.body?.goal || 'Publish useful pages that can earn search visits')
+    String(req.body?.goal || 'Publish useful pages that can earn search visits'),
+    req.user!.id
   );
   res.json({
     ideas: result.brief,

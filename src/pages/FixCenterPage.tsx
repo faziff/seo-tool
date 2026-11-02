@@ -205,7 +205,7 @@ export const FixCenterPage: React.FC<FixCenterPageProps> = ({ report, onFocusSca
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <div className="w-14 h-14 rounded-2xl bg-violet-50 text-violet-700 flex items-center justify-center mx-auto"><FileCode2 className="w-7 h-7" /></div>
           <h2 className="text-lg font-extrabold text-slate-900 mt-4">{fixes.length === 0 ? 'Your fix queue is ready' : 'No drafts match this view'}</h2>
-          <p className="text-sm text-slate-500 leading-6 max-w-xl mx-auto mt-2">{fixes.length === 0 ? 'Generate drafts from unresolved findings in this audit. Up to 15 are created per batch, with local fallback guidance available when Gemini is not configured.' : 'Try a different status filter or clear the search field.'}</p>
+          <p className="text-sm text-slate-500 leading-6 max-w-xl mx-auto mt-2">{fixes.length === 0 ? 'Generate drafts from unresolved findings in this audit. Up to 15 are created per batch, with local fallback guidance available when no NOVA AI provider is configured.' : 'Try a different status filter or clear the search field.'}</p>
           {fixes.length === 0 && <button onClick={handleGenerate} disabled={generating || loading || report.status !== 'completed' || report.issues.every((issue) => issue.resolved)} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"><WandSparkles className="w-4 h-4" /> Generate first drafts</button>}
         </div>
       ) : (

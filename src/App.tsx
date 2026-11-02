@@ -61,6 +61,7 @@ export default function App() {
   // Modals & Drawers
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [isAIOpen, setIsAIOpen] = useState<boolean>(false);
+  const [novaInitialPrompt, setNovaInitialPrompt] = useState<{ message: string; nonce: number } | null>(null);
   const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
@@ -135,18 +136,25 @@ export default function App() {
   }, [authReady, currentUser, pagePath]);
 
   useEffect(() => {
+    const handleAskNova = (event: Event) => {
+      const message = String((event as CustomEvent<{ message?: string }>).detail?.message || '').trim();
+      if (!message) return;
+      setNovaInitialPrompt({ message, nonce: Date.now() });
+      setIsAIOpen(true);
+    };
+    window.addEventListener('crox:ask-nova', handleAskNova);
+    return () => window.removeEventListener('crox:ask-nova', handleAskNova);
+  }, []);
+
+  useEffect(() => {
     const handleWorkspaceSearch = (event: Event) => {
       const query = String((event as CustomEvent<{ query?: string }>).detail?.query || '').trim().toLowerCase();
       if (!query) return;
-      const matchingScan = recentScans.find((scan) => `${scan.domain} ${scan.target_url}`.toLowerCase().includes(query));
-      if (matchingScan) {
-        void handleSelectScan(matchingScan.id);
-        return;
-      }
       const tools: Array<{ terms: string[]; tab: string }> = [
         { terms: ['fix', 'fix center', 'remediation', 'autofix'], tab: 'fix-center' },
         { terms: ['keyword gap'], tab: 'keyword-gap' },
         { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
+        { terms: ['content', 'content ideas'], tab: 'content' },
         { terms: ['backlink', 'link building'], tab: 'backlinks' },
         { terms: ['position tracking', 'rank tracking'], tab: 'position-tracking' },
         { terms: ['aeo', 'answer engine', 'answer optimization'], tab: 'aeo' },
@@ -162,17 +170,22 @@ export default function App() {
         { terms: ['technical', 'broken link'], tab: 'technical' },
         { terms: ['report', 'export'], tab: 'reports' },
         { terms: ['setting', 'integration', 'api key'], tab: 'settings' },
+        { terms: ['seo overview', 'seo workspace'], tab: 'overview' },
         { terms: ['seo', 'metadata', 'title tag'], tab: 'seo-analysis' },
         { terms: ['site audit', 'crawl', 'pages'], tab: 'site-audit' },
         { terms: ['checklist', 'page checks', 'on-page checks'], tab: 'audit-checklist' }
       ];
-      const match = tools.find((tool) => tool.terms.some((term) => term.includes(query) || query.includes(term)));
-      if (match) setCurrentTab(match.tab);
-      else setScanError(`No scan or tool matched “${query}”. Try a domain name or a tool such as Fix Center, Keywords, Reports, or Settings.`);
+      const match = tools.find((tool) => tool.terms.some((term) => term === query || term.includes(query) || query.includes(term)));
+      if (match) { setCurrentTab(match.tab); return; }
+      const matchingScan = recentScans.find((scan) => `${scan.domain} ${scan.target_url}`.toLowerCase().includes(query));
+      if (matchingScan) { void handleSelectScan(matchingScan.id); return; }
+      const matchingIssue = report?.issues.find(issue => `${issue.title} ${issue.rule_id} ${issue.affected_url}`.toLowerCase().includes(query));
+      if (matchingIssue) { setSelectedIssue(matchingIssue); return; }
+      setScanError(`No scan or tool matched “${query}”. Try a domain name, SEO/AEO/GEO, Fix Center, Keywords, Reports, or ask NOVA.`);
     };
     window.addEventListener('crox:search', handleWorkspaceSearch);
     return () => window.removeEventListener('crox:search', handleWorkspaceSearch);
-  }, [recentScans]);
+  }, [recentScans, report]);
 
   const loadUserScans = async () => {
     try {
@@ -411,6 +424,7 @@ export default function App() {
           <Header
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             onOpenAI={() => setIsAIOpen(true)}
+            onAskNOVA={(message) => { setNovaInitialPrompt({ message, nonce: Date.now() }); setIsAIOpen(true); }}
             onOpenSettings={() => setCurrentTab('settings')}
             onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
             onLogout={handleLogout}
@@ -654,6 +668,7 @@ export default function App() {
         isOpen={isAIOpen}
         onClose={() => setIsAIOpen(false)}
         report={report}
+        initialPrompt={novaInitialPrompt}
       />
 
       <CompareScansModal

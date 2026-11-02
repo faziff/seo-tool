@@ -8,7 +8,7 @@ The repository already had a React + Vite + TypeScript client, an Express/TypeSc
 
 - **Workspace projects:** a persistent `projects` table and account-scoped list/create/update/delete API routes. Each project stores its domain, target URL, market country, and timestamps.
 - **Conversation storage foundation:** `ai_conversations` and `ai_messages` tables plus DB methods for Phase 1. The streaming chat endpoint is intentionally not implemented in Phase 0.
-- **Provider-neutral AI gateway:** `src/backend/ai_provider.ts` centralizes Gemini and OpenAI-compatible Hermes, OpenRouter, and Groq text generation. It supports server-only credentials, provider/model selection, TTL response caching, duplicate-request coalescing, timeouts for compatible endpoints, and redacted error details. Missing credentials leave the existing deterministic/local guidance available.
+- **Provider-neutral AI gateway:** `src/backend/ai_provider.ts` supports Google Gemini, OpenAI Responses API, Anthropic Messages API, OpenRouter, Groq, Mistral and a legacy OpenAI-compatible Hermes server. Account-level provider keys are encrypted at rest with AES-256-GCM, scoped to the signed-in user, and never returned to the browser. Per-user model IDs, provider priority and fallback settings are stored in account settings. The gateway also supports server environment keys, TTL response caching, duplicate-request coalescing, request timeouts and redacted error details. Missing credentials leave the existing deterministic/local guidance available.
 - **Reusable external-request cache:** `src/backend/request_cache.ts` hashes request descriptors, supports configurable TTLs, coalesces concurrent duplicate requests, bounds in-memory entries, and does not cache failed requests. Existing DataForSEO keyword-volume and Google PageSpeed requests use it, as does Google autocomplete; future modules can share it.
 - **Google OAuth option:** server routes implement authorization-code sign-in when Google credentials are supplied. Email/password sign-in remains available independently.
 - **Request protections:** baseline API request throttling, tighter request-body limits, security response headers, and an additional failed-login throttle.
@@ -62,7 +62,7 @@ When moving to `better-sqlite3` or PostgreSQL, first formalize the current `db.t
 ## Data and trust rules
 
 - API credentials are read only by the server. Do not put provider keys in `VITE_*` variables or frontend source.
-- `AI_PROVIDER` can select `gemini`, `hermes`, `openrouter`, or `groq`. If unset, CROX chooses the first configured provider in that order. If explicitly selected but missing a key, it stays in demo/local mode rather than silently using another provider.
+- `AI_PROVIDER` can select a server-level provider (`gemini`, `openai`, `anthropic`, `openrouter`, `groq`, `mistral` or legacy `hermes`). Signed-in users can set their own provider order and fallback setting in Settings. Set a stable `AI_KEYS_ENCRYPTION_SECRET` or `JWT_SECRET` before saving account keys.
 - Cached AI and external API responses are keyed by normalized request descriptors and credential fingerprints, then stored under a hash; prompts and credentials are not printed to logs by the cache layer.
 - Keyword ideas and market briefs remain estimates until supported by real search/analytics data providers. The UI must not label absent data as live data.
 - Google OAuth is optional. For production use HTTPS and an exact callback URL registered in Google Cloud Console.

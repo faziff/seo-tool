@@ -47,13 +47,17 @@ See `.env.example` for the complete variable list. The most important settings a
 |---|---|
 | `JWT_SECRET` | **Required in production.** Use a unique random secret of at least 32 characters. If omitted during local development, CROX generates a temporary random secret and sessions expire when the server restarts. |
 | `PORT` | HTTP port; defaults to `3000`. |
-| `AI_PROVIDER` | Optional explicit provider selection: `gemini`, `hermes`, `openrouter` or `groq`. If unset, the first provider with a configured key is selected. |
-| `AI_CACHE_TTL_SECONDS` | Server-side response-cache TTL for identical AI requests; defaults to 300 seconds. Set to `0` to disable AI response caching. |
+| `AI_PROVIDER` | Optional server-level preference: `gemini`, `openai`, `anthropic`, `openrouter`, `groq`, `mistral` or legacy `hermes`. Per-user order is managed in Settings. |
+| `AI_CACHE_TTL_SECONDS` | Server-side response-cache TTL for identical AI requests; defaults to 180 seconds. Set to `0` to disable AI response caching. |
 | `API_CACHE_TTL_SECONDS` | TTL for repeatable external API requests such as DataForSEO keyword volumes and PageSpeed; defaults to 300 seconds. Set to `0` to disable response caching (concurrent duplicate requests are still coalesced). |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Optional Gemini-backed NOVA guidance and drafts. |
+| `AI_KEYS_ENCRYPTION_SECRET` | **Required to save account-level provider keys**, unless a stable 32+ character `JWT_SECRET` is used as the encryption key source. Keep it unchanged or saved provider keys cannot be decrypted. |
+| `GEMINI_API_KEY`, `GEMINI_API_KEYS`, `GEMINI_MODEL` | Optional server-level Gemini key pool/model. |
+| `OPENAI_API_KEY`, `OPENAI_API_KEYS`, `OPENAI_MODEL` | Optional server-level OpenAI key pool/model (OpenAI Responses API). |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_API_KEYS`, `ANTHROPIC_MODEL` | Optional server-level Anthropic Claude key pool/model. |
+| `MISTRAL_API_KEY`, `MISTRAL_API_KEYS`, `MISTRAL_MODEL` | Optional server-level Mistral key pool/model. |
 | `HERMES_API_KEY`, `HERMES_BASE_URL`, `HERMES_MODEL` | Optional Hermes or another OpenAI-compatible endpoint, including a self-hosted endpoint. |
-| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL` | Optional OpenRouter provider and model selection. |
-| `GROQ_API_KEY`, `GROQ_BASE_URL`, `GROQ_MODEL` | Optional Groq provider and model selection. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_API_KEYS`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL` | Optional OpenRouter key pool and model selection. |
+| `GROQ_API_KEY`, `GROQ_API_KEYS`, `GROQ_BASE_URL`, `GROQ_MODEL` | Optional Groq key pool and model selection. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Optional Google OAuth sign-in. Set the redirect URI to `https://your-domain.com/api/auth/google/callback` (or your registered local callback) exactly as configured in Google Cloud Console. |
 | `PAGESPEED_API_KEY` | Optional Google PageSpeed Insights data. Without it, live PageSpeed data is unavailable rather than fabricated. |
 | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | Optional provider credentials for live keyword data. |
@@ -64,6 +68,16 @@ See `.env.example` for the complete variable list. The most important settings a
 
 Keep actual API keys and `.env` private. Never hard-code secrets into frontend source or commit them to source control.
 
+### NOVA multi-provider setup
+
+After signing in, open **Settings → Integrations → NOVA multi-provider setup**. CROX supports server-managed key pools for Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Groq and Mistral, plus an optional encrypted account-level key per provider. Server secrets are read only by the Node backend and are never returned to the browser. Account-level keys use AES-256-GCM and are also never returned after saving. Use **Test connection** to validate an authorized credential and move providers up/down in the fallback priority list. Provider API usage is billed by the provider and is separate from CROX credits.
+
+For each provider, the legacy singular `*_API_KEY` variable is supported. Multiple server keys can be supplied as a comma- or newline-separated `*_API_KEYS` value, a JSON string array, or numbered variables such as `OPENAI_API_KEY_1`, `OPENAI_API_KEY_2` (up to 10). Set them in your hosting provider's secret manager, not in frontend `VITE_` variables or committed files. Keep a stable `AI_KEYS_ENCRYPTION_SECRET` of at least 32 characters before saving account-level keys; alternatively, CROX derives the encryption key from your stable `JWT_SECRET`. Never rotate either encryption secret without a deliberate credential re-encryption/migration plan, or existing saved account keys will no longer decrypt.
+
+**Failover rules are deliberately conservative:** an HTTP 401 can move to another explicitly configured key for that provider because the failing credential is invalid/revoked. Quota/billing exhaustion, rate limits and temporary availability failures do not rotate through keys of the same provider (they may share one organisation quota); CROX performs at most one short retry when allowed, honours a short `Retry-After`, applies an in-process cooldown, then moves to the next independently configured provider when fallback is enabled. A 403 permission/region/policy refusal and fatal request errors stop the chain; CROX does not route around provider restrictions or safety decisions. Usage records track provider/model, status class, latency, character counts and attempt number for 90 days; raw keys, prompts and response bodies are not stored. Token-cost totals are not claimed because the supported adapters do not consistently return comparable billing data.
+
+The OpenAI provider uses the Responses API. Gemini, Anthropic and compatible endpoints use their provider APIs. Default model IDs are examples based on provider documentation and can be changed to models enabled for your own account.
+
 ## Build and checks
 
 ```bash
@@ -72,7 +86,7 @@ npm run lint
 npm run test:backend
 ```
 
-`npm run lint` runs TypeScript's no-emit check. `npm run test:backend` runs the Node backend test harness. Install dependencies first. Google sign-in stays disabled until all three Google OAuth variables are set; email/password authentication works without them. The separately maintained Python tests under `backend/tests` apply only to the FastAPI implementation.
+`npm run lint` runs TypeScript's no-emit check. `npm run test:backend` runs the Node backend test harness, including credential-pool parsing, simulated cross-provider failover and usage logging. Install dependencies first. Google sign-in stays disabled until all three Google OAuth variables are set; email/password authentication works without them. The separately maintained Python tests under `backend/tests` apply only to the FastAPI implementation.
 
 ## SEO, AEO and GEO data scope
 

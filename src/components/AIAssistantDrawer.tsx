@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X,
   Send,
@@ -15,6 +15,7 @@ interface AIAssistantDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   report: ScanReport | null;
+  initialPrompt?: { message: string; nonce: number } | null;
 }
 
 interface Message {
@@ -25,20 +26,20 @@ interface Message {
 export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
   isOpen,
   onClose,
-  report
+  report,
+  initialPrompt
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
       text: report
         ? `Hello! I am NOVA AI, your website audit copilot. I have context on your recent scan for ${report.domain} (Health Score: ${report.health_score}/100 with ${report.issues.length} detected findings). How can I help you improve your search visibility or technical performance today?`
-        : 'Hello! I am NOVA AI. Ask me any question about on-page SEO, technical crawling rules, Core Web Vitals, or how to resolve site audit issues.'
+        : 'Hello! I am NOVA AI. Ask me about SEO, answer engines (AEO), generative search visibility (GEO), your CROX workspace, or practical growth actions.'
     }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-
-  if (!isOpen) return null;
+  const processedPromptRef = useRef<number | null>(null);
 
   const quickPrompts = [
     'What is the highest priority issue to fix?',
@@ -47,7 +48,7 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
     'Generate schema.org JSON-LD for an organization'
   ];
 
-  const handleSend = async (messageText: string) => {
+  const handleSend = useCallback(async (messageText: string) => {
     if (!messageText.trim() || loading) return;
 
     const userMsg = messageText.trim();
@@ -63,13 +64,21 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
         ...prev,
         {
           role: 'assistant',
-          text: `NOVA AI response error: ${err.message}. If running locally, please ensure GEMINI_API_KEY is configured in your backend environment.`
+          text: `NOVA could not complete that request: ${err.message}. Check Settings → Integrations and confirm that at least one AI provider key is connected.`
         }
       ]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, report?.scan_id]);
+
+  useEffect(() => {
+    if (!isOpen || !initialPrompt?.message || processedPromptRef.current === initialPrompt.nonce) return;
+    processedPromptRef.current = initialPrompt.nonce;
+    void handleSend(initialPrompt.message);
+  }, [isOpen, initialPrompt, handleSend]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-xs">
@@ -82,7 +91,7 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">NOVA AI Assistant</h3>
-              <p className="text-[11px] text-slate-500">Technical SEO & Architecture Copilot</p>
+              <p className="text-[11px] text-slate-500">SEO · AEO · GEO Growth Copilot</p>
             </div>
           </div>
           <button

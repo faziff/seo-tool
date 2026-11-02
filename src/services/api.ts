@@ -363,13 +363,15 @@ export interface CROXKeywordIdea {
   search_volume_provider_status: 'live' | 'provider_not_configured';
 }
 
+export type NOVAAIMode = 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'groq' | 'mistral' | 'hermes' | 'heuristic';
+
 export interface KeywordStrategyResponse {
   seed_phrase: string;
   niche: string;
   market: string;
   total_keywords: number;
   keywords: CROXKeywordIdea[];
-  ai_mode: 'gemini' | 'heuristic';
+  ai_mode: NOVAAIMode;
   provider_status: string;
 }
 
@@ -381,6 +383,47 @@ export async function analyzeKeywords(seedPhrase: string, niche: string, market:
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || 'Keyword research could not be completed.');
+  window.dispatchEvent(new Event('crox:credits-refresh'));
+  return data;
+}
+
+export interface CROXResearchKeywordRow {
+  keyword: string;
+  intent: 'Informational' | 'Commercial' | 'Transactional' | 'Navigational';
+  difficulty: number;
+  difficulty_label: 'Easy' | 'Medium' | 'Hard';
+  volume: number | null;
+  volume_label: 'estimate' | 'provider';
+  cpc: number | null;
+  cpc_label: 'estimate' | 'provider';
+  trend: 'unavailable';
+  cluster: string;
+  source: string;
+}
+
+export interface CROXKeywordResearchResponse {
+  provider: 'dataforseo' | 'google_autocomplete+estimates';
+  provider_status: string;
+  rows: CROXResearchKeywordRow[];
+  buckets: {
+    target: CROXResearchKeywordRow[];
+    avoid: Array<CROXResearchKeywordRow & { reason: string }>;
+    quick_wins: CROXResearchKeywordRow[];
+  };
+  briefing: { country: string; city?: string; language: string; niche: string; website?: string; goal: string };
+}
+
+export async function researchKeywordIdeas(input: {
+  seed: string; country: string; city?: string; language?: string; niche?: string;
+  website?: string; goal?: string; use_ai?: boolean;
+}): Promise<CROXKeywordResearchResponse> {
+  const res = await fetch('/api/keywords/research', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(readApiError(data, 'Keyword research could not be completed.'));
   window.dispatchEvent(new Event('crox:credits-refresh'));
   return data;
 }
@@ -433,7 +476,7 @@ export async function compareCompetitorDomains(targetDomain: string, competitorD
 
 export interface MarketBriefResponse {
   brief: string;
-  ai_mode: 'gemini' | 'heuristic';
+  ai_mode: NOVAAIMode;
   note: string;
 }
 
@@ -447,4 +490,73 @@ export async function generateMarketBrief(niche: string, market: string, goal: s
   if (!res.ok) throw new Error(data.detail || 'Market brief could not be generated.');
   window.dispatchEvent(new Event('crox:credits-refresh'));
   return data;
+}
+
+export interface AIProviderCardSetting {
+  provider: 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'groq' | 'mistral';
+  label: string;
+  configured: boolean;
+  enabled: boolean;
+  source: 'account' | 'server' | 'mixed' | 'none';
+  model: string;
+  key_hint: string;
+  key_count: number;
+  updated_at?: string;
+}
+
+export interface AIProviderSettingsResponse {
+  providers: AIProviderCardSetting[];
+  order: AIProviderCardSetting['provider'][];
+  fallback_enabled: boolean;
+  encryption_ready: boolean;
+}
+
+async function providerRequest(path: string, method = 'GET', body?: Record<string, unknown>) {
+  const response = await fetch(path, {
+    method,
+    headers: getAuthHeaders(),
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(readApiError(payload, 'AI provider settings request failed.'));
+  return payload;
+}
+
+export async function getAIProviderSettings(): Promise<AIProviderSettingsResponse> {
+  return providerRequest('/api/ai/providers') as Promise<AIProviderSettingsResponse>;
+}
+
+export interface AIProviderUsageResponse {
+  period_days: number;
+  totals: { calls: number; successful: number; failed: number; fallback_attempts: number; rate_limited: number; quota_events: number; average_latency_ms: number };
+  providers: Array<{ provider: string; calls: number; successful: number; failed: number; rate_limited: number; quota_events: number; average_latency_ms: number; last_used_at: string | null }>;
+  recent: Array<{ provider: string; model: string; outcome: string; error_class: string | null; status_code: number | null; latency_ms: number; attempt_no: number; created_at: string }>;
+}
+
+export async function getAIProviderUsage(days = 30): Promise<AIProviderUsageResponse> {
+  return providerRequest(`/api/ai/providers/usage?days=${days}`) as Promise<AIProviderUsageResponse>;
+}
+
+export async function saveAIProviderKey(provider: AIProviderCardSetting['provider'], apiKey: string, model: string) {
+  return providerRequest(`/api/ai/providers/${provider}`, 'PUT', { api_key: apiKey, model });
+}
+
+export async function testAIProviderConnection(provider: AIProviderCardSetting['provider']) {
+  return providerRequest(`/api/ai/providers/${provider}/test`, 'POST');
+}
+
+export async function removeAIProviderKey(provider: AIProviderCardSetting['provider']) {
+  return providerRequest(`/api/ai/providers/${provider}`, 'DELETE');
+}
+
+export async function setAIProviderEnabled(provider: AIProviderCardSetting['provider'], enabled: boolean) {
+  return providerRequest(`/api/ai/providers/${provider}`, 'PATCH', { enabled });
+}
+
+export async function saveAIProviderPreferences(order: AIProviderSettingsResponse['order'], fallbackEnabled: boolean) {
+  return providerRequest('/api/ai/providers/preferences', 'PUT', { order, fallback_enabled: fallbackEnabled });
+}
+
+export async function updateAIProviderModel(provider: AIProviderCardSetting['provider'], model: string) {
+  return providerRequest(`/api/ai/providers/${provider}`, 'PATCH', { model });
 }

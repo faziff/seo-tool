@@ -11,7 +11,7 @@ export interface KeywordRow {
   volume_label: 'estimate' | 'provider';
   cpc: number | null;
   cpc_label: 'estimate' | 'provider';
-  trend: 'up' | 'flat' | 'down';
+  trend: 'unavailable';
   cluster: string;
   source: string;
 }
@@ -24,6 +24,7 @@ export interface KeywordResearchInput {
   niche: string;
   website?: string;
   goal: string;
+  use_ai?: boolean;
 }
 
 export interface KeywordBuckets {
@@ -40,10 +41,6 @@ function difficultyLabel(score: number): KeywordRow['difficulty_label'] {
   return score < 36 ? 'Easy' : score < 66 ? 'Medium' : 'Hard';
 }
 
-function hashTrend(keyword: string): KeywordRow['trend'] {
-  const n = keyword.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return n % 5 === 0 ? 'down' : n % 3 === 0 ? 'up' : 'flat';
-}
 
 function estimateVolume(keyword: string, difficulty: number): number {
   const words = keyword.trim().split(/\s+/).length;
@@ -146,7 +143,7 @@ function toRow(base: KeywordResult, live?: { volume: number; cpc: number }): Key
     volume_label: volumeLive ? 'provider' : 'estimate',
     cpc: cpcLive ? Number(live!.cpc.toFixed(2)) : estimateCpc(base.intent, base.difficulty_score),
     cpc_label: cpcLive ? 'provider' : 'estimate',
-    trend: hashTrend(base.keyword),
+    trend: 'unavailable',
     cluster: base.cluster,
     source: base.source
   };
@@ -179,7 +176,7 @@ function bucketize(rows: KeywordRow[], goal: string): KeywordBuckets {
   return { target, avoid: avoid.slice(0, 10), quick_wins: quick };
 }
 
-export async function researchKeywords(input: KeywordResearchInput): Promise<{
+export async function researchKeywords(input: KeywordResearchInput, userId?: number): Promise<{
   provider: 'dataforseo' | 'google_autocomplete+estimates';
   provider_status: string;
   rows: KeywordRow[];
@@ -189,11 +186,18 @@ export async function researchKeywords(input: KeywordResearchInput): Promise<{
   const seed = input.seed.trim();
   const location = [input.city, input.country].filter(Boolean).join(', ');
   const suggestions = await googleAutocomplete(seed, input.country, input.language);
-  const strategy = await AIService.generateKeywordStrategy(
-    seed,
-    `${input.niche}${input.city ? ` in ${input.city}` : ''}`,
-    location || input.country
-  );
+  const strategy = input.use_ai
+    ? await AIService.generateKeywordStrategy(
+        seed,
+        `${input.niche}${input.city ? ` in ${input.city}` : ''}`,
+        location || input.country,
+        userId
+      )
+    : {
+        keywords: KeywordIntelligenceService.generateKeywords(seed),
+        ai_mode: 'heuristic' as const,
+        provider_status: 'Rule-based keyword expansion and Google autocomplete. No AI provider was called for this keyword lookup.'
+      };
 
   const mergedTerms = new Set<string>();
   const bases: KeywordResult[] = [];
@@ -239,7 +243,7 @@ export async function researchKeywords(input: KeywordResearchInput): Promise<{
     provider: liveConfigured && live.size ? 'dataforseo' : 'google_autocomplete+estimates',
     provider_status: liveConfigured && live.size
       ? 'Live search volume and CPC loaded from DataForSEO. Difficulty still includes modelled scores where the provider does not return KD.'
-      : 'Suggestions from Google autocomplete plus CROX estimates. Volume and CPC are labelled estimate until DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are set.',
+      : `${strategy.provider_status} Volume and CPC are clearly labelled estimates until DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are set.`,
     rows,
     buckets,
     briefing: {

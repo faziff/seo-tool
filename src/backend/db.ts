@@ -194,6 +194,36 @@ CREATE TABLE IF NOT EXISTS users (
   extra_ai INTEGER NOT NULL DEFAULT 0,
   extra_keywords INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS user_ai_credentials (
+  user_id INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  encrypted_key TEXT NOT NULL,
+  iv TEXT NOT NULL,
+  auth_tag TEXT NOT NULL,
+  model TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_credentials_user ON user_ai_credentials(user_id);
+CREATE TABLE IF NOT EXISTS ai_provider_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  error_class TEXT,
+  error_code TEXT,
+  status_code INTEGER,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  input_chars INTEGER NOT NULL DEFAULT 0,
+  output_chars INTEGER NOT NULL DEFAULT 0,
+  attempt_no INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_provider_usage_user_created ON ai_provider_usage(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_provider_usage_provider_created ON ai_provider_usage(provider, created_at DESC);
 CREATE TABLE IF NOT EXISTS signup_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ip TEXT NOT NULL,
@@ -515,6 +545,120 @@ class DatabaseStore {
 
   private run(sql: string, params: any[] = []) {
     this.requireSql().run(sql, params);
+  }
+
+  public listUserAICredentials(userId: number): Array<{ provider: string; encrypted_key: string; iv: string; auth_tag: string; model: string; enabled: boolean; updated_at: string }> {
+    return this.all('SELECT provider, encrypted_key, iv, auth_tag, model, enabled, updated_at FROM user_ai_credentials WHERE user_id = ? ORDER BY updated_at DESC', [userId])
+      .map(row => ({ ...row, enabled: !!row.enabled }));
+  }
+
+  public getUserAICredential(userId: number, provider: string): { provider: string; encrypted_key: string; iv: string; auth_tag: string; model: string; enabled: boolean; updated_at: string } | undefined {
+    const row = this.get('SELECT provider, encrypted_key, iv, auth_tag, model, enabled, updated_at FROM user_ai_credentials WHERE user_id = ? AND provider = ?', [userId, provider]);
+    return row ? { ...row, enabled: !!row.enabled } : undefined;
+  }
+
+  public saveUserAICredential(userId: number, credential: { provider: string; encrypted_key: string; iv: string; auth_tag: string; model: string; enabled?: boolean }): void {
+    this.run(`INSERT INTO user_ai_credentials (user_id, provider, encrypted_key, iv, auth_tag, model, enabled, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, provider) DO UPDATE SET encrypted_key=excluded.encrypted_key, iv=excluded.iv, auth_tag=excluded.auth_tag, model=excluded.model, enabled=excluded.enabled, updated_at=excluded.updated_at`,
+      [userId, credential.provider, credential.encrypted_key, credential.iv, credential.auth_tag, credential.model, credential.enabled === false ? 0 : 1, new Date().toISOString()]);
+    this.saveImmediately();
+  }
+
+  public updateUserAICredential(userId: number, provider: string, updates: { enabled?: boolean; model?: string }): boolean {
+    const current = this.getUserAICredential(userId, provider);
+    if (!current) return false;
+    const model = updates.model === undefined ? current.model : updates.model;
+    const enabled = updates.enabled === undefined ? current.enabled : updates.enabled;
+    this.run('UPDATE user_ai_credentials SET model = ?, enabled = ?, updated_at = ? WHERE user_id = ? AND provider = ?', [model, enabled ? 1 : 0, new Date().toISOString(), userId, provider]);
+    this.saveImmediately();
+    return true;
+  }
+
+  public deleteUserAICredential(userId: number, provider: string): boolean {
+    const before = this.getUserAICredential(userId, provider);
+    if (!before) return false;
+    this.run('DELETE FROM user_ai_credentials WHERE user_id = ? AND provider = ?', [userId, provider]);
+    this.saveImmediately();
+    return true;
+  }
+
+  public recordAIProviderUsage(event: {
+    user_id: number | null;
+    provider: string;
+    model: string;
+    key_fingerprint: string;
+    outcome: 'success' | 'failed';
+    error_class?: string | null;
+    error_code?: string | null;
+    status_code?: number | null;
+    latency_ms: number;
+    input_chars: number;
+    output_chars: number;
+    attempt_no: number;
+  }): void {
+    this.run(`INSERT INTO ai_provider_usage
+      (user_id, provider, model, key_fingerprint, outcome, error_class, error_code, status_code, latency_ms, input_chars, output_chars, attempt_no, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+      event.user_id, event.provider, event.model, event.key_fingerprint, event.outcome,
+      event.error_class || null, event.error_code || null, event.status_code || null,
+      Math.max(0, Math.round(event.latency_ms)), Math.max(0, Math.round(event.input_chars)),
+      Math.max(0, Math.round(event.output_chars)), Math.max(1, Math.round(event.attempt_no)), new Date().toISOString()
+    ]);
+    // Keep a bounded audit trail; never store prompts or raw API credentials in usage history.
+    this.run("DELETE FROM ai_provider_usage WHERE created_at < ?", [new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()]);
+    this.save();
+  }
+
+  public getAIProviderUsage(userId: number, days = 30): {
+    period_days: number;
+    totals: { calls: number; successful: number; failed: number; fallback_attempts: number; rate_limited: number; quota_events: number; average_latency_ms: number };
+    providers: Array<{ provider: string; calls: number; successful: number; failed: number; rate_limited: number; quota_events: number; average_latency_ms: number; last_used_at: string | null }>;
+    recent: Array<{ provider: string; model: string; outcome: string; error_class: string | null; status_code: number | null; latency_ms: number; attempt_no: number; created_at: string }>;
+  } {
+    const safeDays = Math.max(1, Math.min(90, Math.floor(days || 30)));
+    const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
+    const rows = this.all(`SELECT
+      provider,
+      COUNT(*) AS calls,
+      SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successful,
+      SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN error_class = 'rate_limit' THEN 1 ELSE 0 END) AS rate_limited,
+      SUM(CASE WHEN error_class = 'quota' THEN 1 ELSE 0 END) AS quota_events,
+      ROUND(AVG(latency_ms)) AS average_latency_ms,
+      MAX(created_at) AS last_used_at
+      FROM ai_provider_usage WHERE user_id = ? AND created_at >= ? GROUP BY provider ORDER BY calls DESC`, [userId, since]);
+    const total = this.get(`SELECT
+      COUNT(*) AS calls,
+      SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successful,
+      SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN outcome = 'success' AND attempt_no > 1 THEN 1 ELSE 0 END) AS fallback_attempts,
+      SUM(CASE WHEN error_class = 'rate_limit' THEN 1 ELSE 0 END) AS rate_limited,
+      SUM(CASE WHEN error_class = 'quota' THEN 1 ELSE 0 END) AS quota_events,
+      ROUND(AVG(latency_ms)) AS average_latency_ms
+      FROM ai_provider_usage WHERE user_id = ? AND created_at >= ?`, [userId, since]) || {};
+    const recent = this.all(`SELECT provider, model, outcome, error_class, status_code, latency_ms, attempt_no, created_at
+      FROM ai_provider_usage WHERE user_id = ? AND created_at >= ? ORDER BY id DESC LIMIT 25`, [userId, since]);
+    const number = (value: unknown) => Number(value || 0);
+    return {
+      period_days: safeDays,
+      totals: {
+        calls: number(total.calls), successful: number(total.successful), failed: number(total.failed),
+        fallback_attempts: number(total.fallback_attempts), rate_limited: number(total.rate_limited),
+        quota_events: number(total.quota_events), average_latency_ms: number(total.average_latency_ms)
+      },
+      providers: rows.map(row => ({
+        provider: String(row.provider), calls: number(row.calls), successful: number(row.successful),
+        failed: number(row.failed), rate_limited: number(row.rate_limited), quota_events: number(row.quota_events),
+        average_latency_ms: number(row.average_latency_ms), last_used_at: row.last_used_at ? String(row.last_used_at) : null
+      })),
+      recent: recent.map(row => ({
+        provider: String(row.provider), model: String(row.model), outcome: String(row.outcome),
+        error_class: row.error_class ? String(row.error_class) : null,
+        status_code: row.status_code === null || row.status_code === undefined ? null : number(row.status_code),
+        latency_ms: number(row.latency_ms), attempt_no: number(row.attempt_no), created_at: String(row.created_at)
+      }))
+    };
   }
 
   public findUserByEmail(email: string): UserEntity | undefined {

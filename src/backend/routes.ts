@@ -13,7 +13,8 @@ import { consumeCredit } from './credits.js';
 import { buildPageChecklist } from './page_checklist.js';
 import { dataForSeoConfigured } from './keywordProvider.js';
 import { agentConfigured } from './agent.js';
-import { getAIProviderStatus } from './ai_provider.js';
+import { getAIProviderStatus, getAIProviderSettings, getAIProviderUsage, getDefaultAIProviderOrder, getProviderDefinition, testAIProvider, type UserFacingAIProvider } from './ai_provider.js';
+import { encryptProviderKey } from './ai_key_vault.js';
 import { secretFingerprint, withRequestCache } from './request_cache.js';
 
 export const apiRouter = express.Router();
@@ -442,7 +443,7 @@ apiRouter.post('/ai/fix', requireAuth, async (req: AuthenticatedRequest, res) =>
     affected_url: affected_url || '',
     evidence: evidence || '',
     explanation: explanation || ''
-  });
+  }, req.user!.id);
   // Keep the legacy Issue Detail modal contract while exposing structured fields
   // for newer clients and Fix Center.
   res.json({
@@ -485,7 +486,7 @@ apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest,
   const maxItems = Number.isFinite(maxItemsRaw) ? Math.max(1, Math.min(15, Math.floor(maxItemsRaw))) : 15;
   const batch = candidates.slice(0, maxItems);
   if (batch.length === 0) {
-    return res.json({ fixes: existing, generated_count: 0, remaining_count: 0, provider_mode: process.env.GEMINI_API_KEY ? 'gemini-enabled-with-local-fallback' : 'local-fallback', message: 'No new unresolved issues needed drafts.' });
+    return res.json({ fixes: existing, generated_count: 0, remaining_count: 0, provider_mode: getAIProviderStatus(req.user!.id).configured ? 'multi-provider-ai-enabled' : 'local-fallback', message: 'No new unresolved issues needed drafts.' });
   }
   const credit = consumeCredit(req.user!, 'ai');
   if (!credit.ok) return res.status(402).json({ detail: credit.message, credits: credit.snapshot });
@@ -504,7 +505,7 @@ apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest,
           evidence: issue.evidence,
           explanation: issue.explanation,
           recommendation: issue.recommendation
-        });
+        }, req.user!.id);
         const now = new Date().toISOString();
         const record: FixEntity = {
           id: `fix-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -543,7 +544,7 @@ apiRouter.post('/fixes/generate', requireAuth, async (req: AuthenticatedRequest,
     fixes,
     generated_count: generated.length,
     remaining_count: remainingCount,
-    provider_mode: process.env.GEMINI_API_KEY ? 'gemini-enabled-with-local-fallback' : 'local-fallback',
+    provider_mode: getAIProviderStatus(req.user!.id).configured ? 'multi-provider-ai-enabled' : 'local-fallback',
     message: generated.length ? `Generated ${generated.length} draft${generated.length === 1 ? '' : 's'}. Review before using them.` : 'No new unresolved issues needed drafts.'
   });
 });
@@ -606,7 +607,7 @@ apiRouter.post('/ai/chat', requireAuth, async (req: AuthenticatedRequest, res) =
     };
   }
 
-  const reply = await AIService.answerQuestion(message.trim(), scanContext);
+  const reply = await AIService.answerQuestion(message.trim(), scanContext, req.user!.id);
   res.json(reply);
 });
 
@@ -623,7 +624,8 @@ apiRouter.post('/market/brief', requireAuth, async (req: AuthenticatedRequest, r
   const result = await AIService.generateMarketBrief(
     niche,
     typeof market === 'string' ? market : 'Global',
-    typeof goal === 'string' ? goal : 'Grow qualified organic traffic'
+    typeof goal === 'string' ? goal : 'Grow qualified organic traffic',
+    req.user!.id
   );
   res.json(result);
 });
@@ -641,7 +643,8 @@ apiRouter.post('/keywords/analyze', requireAuth, async (req: AuthenticatedReques
   const strategy = await AIService.generateKeywordStrategy(
     seed_phrase.trim(),
     typeof niche === 'string' ? niche.slice(0, 100) : 'General',
-    typeof market === 'string' ? market.slice(0, 100) : 'Global'
+    typeof market === 'string' ? market.slice(0, 100) : 'Global',
+    req.user!.id
   );
   res.json({
     seed_phrase: seed_phrase.trim(),
@@ -882,13 +885,91 @@ apiRouter.get('/pagespeed', requireAuth, async (req: AuthenticatedRequest, res) 
   }
 });
 
-apiRouter.get('/integrations/status', requireAuth, (_req, res) => {
-  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+const isUserAIProvider = (value: string): value is UserFacingAIProvider => !!getProviderDefinition(value);
+
+apiRouter.get('/ai/providers', requireAuth, (req: AuthenticatedRequest, res) => {
+  res.json(getAIProviderSettings(req.user!.id));
+});
+
+apiRouter.get('/ai/providers/usage', requireAuth, (req: AuthenticatedRequest, res) => {
+  const days = Number(req.query.days || 30);
+  res.json(getAIProviderUsage(req.user!.id, Number.isFinite(days) ? days : 30));
+});
+
+apiRouter.put('/ai/providers/preferences', requireAuth, (req: AuthenticatedRequest, res) => {
+  const supplied = Array.isArray(req.body?.order) ? req.body.order : [];
+  const allowed = getDefaultAIProviderOrder();
+  const order = supplied.filter((name: unknown): name is UserFacingAIProvider => typeof name === 'string' && allowed.includes(name as UserFacingAIProvider));
+  const deduped = [...new Set(order)];
+  const completeOrder = [...deduped, ...allowed.filter(name => !deduped.includes(name))];
+  const settings = {
+    ...req.user!.settings,
+    aiProviderOrder: completeOrder,
+    aiProviderFallback: req.body?.fallback_enabled !== false
+  };
+  const updated = db.updateUser(req.user!.id, { settings });
+  res.json({ ok: true, settings: getAIProviderSettings(req.user!.id), preferred_provider: completeOrder[0], fallback_enabled: updated?.settings?.aiProviderFallback !== false });
+});
+
+apiRouter.put('/ai/providers/:provider', requireAuth, (req: AuthenticatedRequest, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  const meta = getProviderDefinition(provider);
+  if (!meta) return res.status(404).json({ detail: 'Unsupported AI provider.' });
+  const apiKey = typeof req.body?.api_key === 'string' ? req.body.api_key.trim() : '';
+  const model = typeof req.body?.model === 'string' ? req.body.model.trim().slice(0, 160) : meta.model;
+  if (apiKey.length < 8 || apiKey.length > 1000) return res.status(400).json({ detail: 'Enter a valid provider API key (8–1,000 characters).' });
+  if (!model) return res.status(400).json({ detail: 'Enter a model name.' });
+  try {
+    const sealed = encryptProviderKey(apiKey);
+    db.saveUserAICredential(req.user!.id, { provider, ...sealed, model, enabled: true });
+    res.json({ ok: true, settings: getAIProviderSettings(req.user!.id), message: `${meta.label} key saved securely.` });
+  } catch (error: any) {
+    res.status(503).json({ detail: String(error?.message || 'Could not securely save the provider key.') });
+  }
+});
+
+apiRouter.patch('/ai/providers/:provider', requireAuth, (req: AuthenticatedRequest, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  if (!isUserAIProvider(provider)) return res.status(404).json({ detail: 'Unsupported AI provider.' });
+  const updates: { enabled?: boolean; model?: string } = {};
+  if (typeof req.body?.enabled === 'boolean') updates.enabled = req.body.enabled;
+  if (typeof req.body?.model === 'string') {
+    const model = req.body.model.trim();
+    if (!model || model.length > 160) return res.status(400).json({ detail: 'Model name must be between 1 and 160 characters.' });
+    updates.model = model;
+  }
+  if (!Object.keys(updates).length) return res.status(400).json({ detail: 'Provide a model or enabled setting.' });
+  const updated = db.updateUserAICredential(req.user!.id, provider, updates);
+  if (!updated) return res.status(404).json({ detail: 'No account API key is saved for this provider.' });
+  res.json({ ok: true, settings: getAIProviderSettings(req.user!.id) });
+});
+
+apiRouter.delete('/ai/providers/:provider', requireAuth, (req: AuthenticatedRequest, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  if (!isUserAIProvider(provider)) return res.status(404).json({ detail: 'Unsupported AI provider.' });
+  const removed = db.deleteUserAICredential(req.user!.id, provider);
+  if (!removed) return res.status(404).json({ detail: 'No account API key is saved for this provider.' });
+  res.json({ ok: true, settings: getAIProviderSettings(req.user!.id), message: 'Account API key removed. A server-level key, if configured, may still be used.' });
+});
+
+apiRouter.post('/ai/providers/:provider/test', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  if (!isUserAIProvider(provider)) return res.status(404).json({ detail: 'Unsupported AI provider.' });
+  try {
+    const result = await testAIProvider(provider, req.user!.id);
+    res.json(result);
+  } catch (error: any) {
+    res.status(502).json({ detail: String(error?.message || 'Provider connection test failed.').slice(0, 240) });
+  }
+});
+
+apiRouter.get('/integrations/status', requireAuth, (req: AuthenticatedRequest, res) => {
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY_1);
   const pageSpeedConfigured = Boolean(process.env.PAGESPEED_API_KEY);
-  const aiProvider = getAIProviderStatus();
+  const aiProvider = getAIProviderStatus(req.user!.id);
   res.json({
     ai: { provider: aiProvider.provider, configured: aiProvider.configured, mode: aiProvider.mode, model: aiProvider.model, note: aiProvider.note },
-    gemini: { configured: geminiConfigured, model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' },
+    gemini: { configured: geminiConfigured, model: process.env.GEMINI_MODEL || 'gemini-3.8-flash' },
     pagespeed: { configured: pageSpeedConfigured },
     dataforseo: { configured: dataForSeoConfigured() },
     agent: { configured: agentConfigured() },

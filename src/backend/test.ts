@@ -6,8 +6,9 @@ import { ScoringEngine } from './scoring.js';
 import { ReportingService } from './reporting.js';
 import { KeywordIntelligenceService } from './keywords.js';
 import { AIService } from './ai_service.js';
-import { getAIProviderStatus } from './ai_provider.js';
+import { generateAIText, getAIProviderSettings, getAIProviderStatus, getAIProviderUsage } from './ai_provider.js';
 import { secretFingerprint, withRequestCache } from './request_cache.js';
+import { encryptProviderKey, decryptProviderKey } from './ai_key_vault.js';
 
 let passedTests = 0;
 let failedTests = 0;
@@ -78,7 +79,7 @@ async function runAllTests() {
   });
 
   await test('AI provider status supports safe demo mode without credentials', () => {
-    const keys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const keys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MISTRAL_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
     const original = new Map(keys.map(key => [key, process.env[key]]));
     try {
       for (const key of keys) delete process.env[key];
@@ -92,6 +93,102 @@ async function runAllTests() {
         const value = original.get(key);
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
+      }
+    }
+  });
+
+  await test('NOVA provider API keys are encrypted at rest and scoped per account', () => {
+    const priorSecret = process.env.AI_KEYS_ENCRYPTION_SECRET;
+    process.env.AI_KEYS_ENCRYPTION_SECRET = 'crox-backend-test-secret-that-is-at-least-32-chars';
+    const userId = 870_000 + Math.floor(Math.random() * 100_000);
+    const rawKey = 'test-provider-secret-never-store-plain';
+    try {
+      const sealed = encryptProviderKey(rawKey);
+      assert.strictEqual(JSON.stringify(sealed).includes(rawKey), false);
+      assert.strictEqual(decryptProviderKey(sealed), rawKey);
+      const tampered = { ...sealed, auth_tag: Buffer.from('tampered-auth-tag').toString('base64') };
+      assert.throws(() => decryptProviderKey(tampered), /auth|Unsupported state|unable to authenticate/i);
+      db.saveUserAICredential(userId, { provider: 'openai', ...sealed, model: 'gpt-6-luna' });
+      const stored = db.getUserAICredential(userId, 'openai');
+      assert.ok(stored);
+      assert.strictEqual(stored!.encrypted_key.includes(rawKey), false);
+      assert.strictEqual(db.getUserAICredential(userId + 1, 'openai'), undefined);
+      assert.strictEqual(db.deleteUserAICredential(userId, 'openai'), true);
+    } finally {
+      if (priorSecret === undefined) delete process.env.AI_KEYS_ENCRYPTION_SECRET;
+      else process.env.AI_KEYS_ENCRYPTION_SECRET = priorSecret;
+    }
+  });
+
+  await test('Server environment key pools are counted without exposing secrets', () => {
+    const envNames = ['AI_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY_1', 'OPENAI_API_KEY_2'];
+    const original = new Map(envNames.map(name => [name, process.env[name]]));
+    try {
+      for (const name of envNames) delete process.env[name];
+      process.env.OPENAI_API_KEYS = 'server-key-alpha,server-key-beta';
+      const settings = getAIProviderSettings(888_001);
+      const openai = settings.providers.find(item => item.provider === 'openai');
+      assert.ok(openai);
+      assert.strictEqual(openai!.key_count, 2);
+      assert.strictEqual(openai!.source, 'server');
+      assert.strictEqual(JSON.stringify(settings).includes('server-key-alpha'), false);
+    } finally {
+      for (const [name, value] of original) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  await test('NOVA failover switches provider on quota exhaustion and records safe usage', async () => {
+    const envNames = ['AI_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_MODEL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEYS', 'ANTHROPIC_MODEL'];
+    const originalEnv = new Map(envNames.map(name => [name, process.env[name]]));
+    const originalFetch = globalThis.fetch;
+    const userId = 888_100 + Math.floor(Math.random() * 10_000);
+    const secretOne = `test-openai-key-${Date.now()}`;
+    const secretTwo = `test-anthropic-key-${Date.now()}`;
+    let openaiCalls = 0;
+    let anthropicCalls = 0;
+    try {
+      for (const name of envNames) delete process.env[name];
+      process.env.AI_PROVIDER = 'openai';
+      process.env.OPENAI_API_KEYS = secretOne;
+      process.env.ANTHROPIC_API_KEY = secretTwo;
+      process.env.ANTHROPIC_MODEL = 'claude-haiku-5-5';
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('api.openai.com')) {
+          openaiCalls++;
+          return new Response(JSON.stringify({ error: { message: 'You exceeded your current quota', code: 'insufficient_quota' } }), {
+            status: 429, headers: { 'content-type': 'application/json' }
+          });
+        }
+        if (url.includes('api.anthropic.com')) {
+          anthropicCalls++;
+          return new Response(JSON.stringify({ content: [{ type: 'text', text: 'CROX fallback test passed' }] }), {
+            status: 200, headers: { 'content-type': 'application/json' }
+          });
+        }
+        throw new Error('Unexpected test URL.');
+      }) as typeof fetch;
+
+      const result = await generateAIText(`failover-test-${Date.now()}`, userId);
+      assert.strictEqual(result.provider, 'anthropic');
+      assert.strictEqual(result.fallback_used, true);
+      assert.strictEqual(openaiCalls, 1);
+      assert.strictEqual(anthropicCalls, 1);
+      const usage = getAIProviderUsage(userId, 1);
+      assert.strictEqual(usage.totals.calls, 2);
+      assert.strictEqual(usage.totals.failed, 1);
+      assert.strictEqual(usage.totals.successful, 1);
+      assert.strictEqual(usage.totals.fallback_attempts, 1);
+      assert.strictEqual(JSON.stringify(usage).includes(secretOne), false);
+      assert.strictEqual(JSON.stringify(usage).includes(secretTwo), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [name, value] of originalEnv) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
       }
     }
   });
@@ -314,7 +411,7 @@ async function runAllTests() {
 
   // Test 8: NOVA fallback must never fabricate live demand data.
   await test('NOVA keyword and market research fallback labels estimated data honestly', async () => {
-    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MISTRAL_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
     const originalProviderEnv = new Map(providerEnvKeys.map(key => [key, process.env[key]]));
     for (const key of providerEnvKeys) delete process.env[key];
     try {
@@ -339,7 +436,7 @@ async function runAllTests() {
   });
 
   await test('Fix Center fallback generates a contextual code draft', async () => {
-    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
+    const providerEnvKeys = ['AI_PROVIDER', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MISTRAL_API_KEY', 'HERMES_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
     const originalProviderEnv = new Map(providerEnvKeys.map(key => [key, process.env[key]]));
     for (const key of providerEnvKeys) delete process.env[key];
     try {

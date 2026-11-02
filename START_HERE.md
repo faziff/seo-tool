@@ -21,7 +21,7 @@ Do not open `index.html` directly. The crawler, account system, credit tracking 
 ## Setup notes
 
 - `JWT_SECRET` must be a unique random secret of at least 32 characters in production. The development-only fallback is not appropriate for public deployment.
-- AI providers are selected server-side with `AI_PROVIDER=gemini`, `hermes`, `openrouter`, or `groq`. Add the matching provider key and optional model/base URL fields shown in `.env.example`. If credentials are missing, supported NOVA features use local/heuristic fallback guidance. `AI_CACHE_TTL_SECONDS` and the shared `API_CACHE_TTL_SECONDS` default to 300 seconds for their respective caches.
+- NOVA supports six account-level providers: Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Groq and Mistral. After signing in, add one or more keys in **Settings → Integrations**, test each connection, choose a model, and move providers up/down to set fallback priority. Keys are encrypted server-side and are never returned to the browser. Set a stable `AI_KEYS_ENCRYPTION_SECRET` (32+ characters) or a stable `JWT_SECRET` before saving keys. Each provider may bill API usage separately. If no provider is configured, CROX uses local/heuristic fallback guidance. `AI_CACHE_TTL_SECONDS` and `API_CACHE_TTL_SECONDS` default to 300 seconds.
 - Google sign-in is optional. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the exact registered `GOOGLE_REDIRECT_URI` to enable its button; email/password login works without Google setup.
 - `PAGESPEED_API_KEY` enables real PageSpeed Insights data.
 - `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` enable provider-backed keyword metrics when configured.
@@ -36,7 +36,8 @@ Never paste secret values into frontend files or share your real `.env` file.
 2. Open the three dashboard workspaces: SEO, AEO and GEO. Run a fresh scan to populate all three. AEO/GEO use crawl-derived readiness checks; they do not claim actual AI platform citations or rankings.
 3. Use Keyword Research to build a list of keyword ideas, filter by intent and export the selected set to CSV.
 4. Use Fix Center and NOVA to draft potential improvements. Review any generated text or code before using it on a live website.
-5. Check the header credits bar for remaining daily audit, AI and keyword allowances. Default allowances reset at midnight Pakistan time.
+5. Use the global header search to find tools/scans or press **Ask NOVA** to start a chat from your query. Press **Ctrl+K** (or **Cmd+K** on Mac) to focus it.
+6. Check the header credits bar for remaining daily audit, AI and keyword allowances. Default allowances reset at midnight Pakistan time.
 
 ## SEO, AEO and GEO
 
