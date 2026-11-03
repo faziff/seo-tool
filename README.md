@@ -5,7 +5,8 @@ CROX is an original SEO workspace built with React, Vite, TypeScript and an Expr
 ## Main areas
 
 - **Public landing page** at `/` and separate `/signup` and `/login` routes.
-- **Workspace overview** opens with three separate product cards: SEO, Answer Engine Optimization (AEO) and Generative Engine Optimization (GEO). The three workspaces share one crawl but show separate, evidence-based assessments.
+- **Dashboard** opens with live audit KPIs, a health-score history chart, issue-severity distribution, site health, priority issues and recent scan activity. Metrics are sourced from saved scans; traffic, keyword ranking and backlink totals are not fabricated when their providers are unavailable.
+- **Projects** contains project creation, website/keyword analysis, SEO/AEO/GEO workspaces and the existing scan workflow.
 - **Site Audit and Audit Checklist** for discovered pages and title/meta/H1/canonical/alt/schema/Open Graph/HTTPS checks.
 - **Keyword Research** with search-intent labels, topic clusters, filtering and CSV export. Search volume and CPC are only shown as live when a data provider is configured.
 - **AEO workspace** checks question coverage, direct answer patterns, heading structure, structured data and extractable content. **GEO workspace** checks entity clarity, evidence structure, authorship/freshness, topical depth and metadata/schema context. SEO Analysis, Fix Center, Performance, Accessibility, Technical Issues, Market Research, Reports and Settings remain available.

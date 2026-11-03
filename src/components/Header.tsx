@@ -16,7 +16,8 @@ interface HeaderProps {
 }
 
 const searchCommands = [
-  { label: 'SEO overview', terms: ['seo overview', 'overview', 'organic overview'], query: 'seo overview', description: 'Open the main SEO dashboard and optimization workspace' },
+  { label: 'Dashboard', terms: ['dashboard', 'seo overview', 'overview', 'organic overview'], query: 'seo overview', description: 'Open the main CROX performance dashboard' },
+  { label: 'Projects', terms: ['project', 'projects', 'workspace projects'], query: 'projects', description: 'Create projects and run website audits' },
   { label: 'SEO analysis', terms: ['seo analysis', 'on-page seo', 'metadata', 'title tag'], query: 'seo analysis', description: 'Inspect titles, descriptions, headings and on-page signals' },
   { label: 'AEO workspace', terms: ['aeo', 'answer engine', 'featured snippet', 'faq'], query: 'aeo', description: 'Answer engine optimization and answer readiness' },
   { label: 'GEO workspace', terms: ['geo', 'generative engine', 'ai search'], query: 'geo', description: 'Generative engine visibility readiness' },
@@ -121,14 +122,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAI, onAs
   const totalCredits = credits ? credits.audits.remaining + credits.ai.remaining + credits.keywords.remaining : 0;
 
   return (
-    <header className="crox-app-header h-16 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl sticky top-0 z-30 px-4 lg:px-8 flex items-center justify-between gap-3 sm:gap-4">
+    <header className="crox-app-header h-14 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl sticky top-0 z-30 px-4 xl:px-5 flex items-center justify-between gap-3 sm:gap-4">
       <div className="flex items-center gap-3 flex-1 min-w-0 max-w-3xl">
         <button onClick={onOpenMobileMenu} className="lg:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg" aria-label="Open navigation menu"><Menu className="w-5 h-5" /></button>
         <div className="relative w-full" ref={searchWrapRef}>
           <form onSubmit={submitSearch} className="relative flex w-full items-center gap-2">
             <div className="relative min-w-0 flex-1">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400"><Search className="w-4 h-4" /></div>
-              <input ref={inputRef} type="search" value={query} onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }} placeholder="Search tools, scans or ask NOVA anything…" aria-label="Search CROX or ask NOVA" aria-expanded={searchOpen} aria-controls="crox-global-search-menu" className="w-full pl-9 pr-14 py-2.5 bg-slate-50/90 border border-slate-200/80 rounded-xl text-xs md:text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all" />
+              <input ref={inputRef} type="search" value={query} onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }} placeholder="Search domain, keyword or any SEO data…" aria-label="Search CROX or ask NOVA" aria-expanded={searchOpen} aria-controls="crox-global-search-menu" className="w-full pl-9 pr-14 py-2.5 bg-slate-50/90 border border-slate-200/80 rounded-xl text-xs md:text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all" />
               <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><kbd className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 bg-white border border-slate-200 rounded-md shadow-2xs font-mono"><Command className="w-2.5 h-2.5" /> K</kbd></div>
             </div>
             <button type="button" onClick={() => askNova(query)} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-cyan-50 px-2.5 py-2.5 text-[10px] font-bold text-violet-800 shadow-sm hover:border-violet-300 hover:from-violet-100 hover:to-cyan-100 sm:px-3" title="Ask NOVA"><NovaOrb size={19} /><span className="hidden sm:inline">Ask NOVA</span></button>

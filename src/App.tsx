@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { HealthScoreCard } from './components/HealthScoreCard';
-import { CrawlStatsCard } from './components/CrawlStatsCard';
-import { TopIssuesTable } from './components/TopIssuesTable';
-import { RecentActivity } from './components/RecentActivity';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { CompareScansModal } from './components/CompareScansModal';
@@ -13,6 +9,7 @@ import { NovaOrb } from './components/NovaOrb';
 import { BrandMark } from './components/BrandMark';
 import { LandingPage } from './components/LandingPage';
 import { WorkspaceHome } from './components/WorkspaceHome';
+import { DashboardOverview } from './components/DashboardOverview';
 import { ModulePreviewPage } from './components/ModulePreviewPage';
 import { AuthPage } from './components/AuthPage';
 import { AuditChecklistPage } from './pages/AuditChecklistPage';
@@ -152,6 +149,7 @@ export default function App() {
       if (!query) return;
       const tools: Array<{ terms: string[]; tab: string }> = [
         { terms: ['fix', 'fix center', 'remediation', 'autofix'], tab: 'fix-center' },
+        { terms: ['project', 'projects'], tab: 'projects' },
         { terms: ['keyword gap'], tab: 'keyword-gap' },
         { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
         { terms: ['content', 'content ideas'], tab: 'content' },
@@ -217,7 +215,7 @@ export default function App() {
   };
 
   const focusScannerInput = () => {
-    setCurrentTab('overview');
+    setCurrentTab('projects');
     setTimeout(() => {
       const inputEl = document.querySelector('input[placeholder="Enter website or keyword"]') as HTMLInputElement;
       if (inputEl) {
@@ -403,7 +401,7 @@ export default function App() {
   }
 
   return (
-    <div className={`crox-theme-root crox-theme-${theme} min-h-screen bg-[#F8FAFC] flex flex-col antialiased font-sans`} data-theme={theme}>
+    <div className={`crox-theme-root crox-theme-${theme} min-h-screen bg-[#F5F4FB] flex flex-col antialiased font-sans`} data-theme={theme}>
 
       <div className="flex-1 flex w-full">
         {/* Left Sidebar Navigation Rail */}
@@ -434,7 +432,7 @@ export default function App() {
           />
 
           {/* Viewport Content */}
-          <main className="flex-1 p-4 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
+          <main className="flex-1 p-4 xl:p-5 max-w-[1600px] w-full mx-auto space-y-5">
             {/* Scan Error Banner */}
             {scanError && (
               <div className="p-4 bg-rose-50 border border-rose-200/80 rounded-2xl flex items-start justify-between gap-3 text-rose-900 text-xs animate-in fade-in">
@@ -455,64 +453,33 @@ export default function App() {
             )}
 
             {currentTab === 'overview' && (
-              <>
-                <WorkspaceHome
-                  userName={currentUser.name}
-                  projects={projects}
-                  recentScans={recentScans}
-                  report={report}
-                  isScanning={isScanning}
-                  scanProgress={scanProgress}
-                  onAnalyzeTarget={handleStartScan}
-                  onOpenTab={setCurrentTab}
-                  onOpenAI={() => setIsAIOpen(true)}
-                  onCreateProject={handleCreateProject}
-                  onSelectScan={handleSelectScan}
-                />
-                {report && (
-                  <>
-                    {/* Current audit metrics remain available below the project overview. */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      <div className="lg:col-span-8">
-                        <HealthScoreCard
-                          report={report}
-                          onViewCategory={(cat) => {
-                            if (cat === 'technical') setCurrentTab('technical');
-                            else if (cat === 'performance') setCurrentTab('performance');
-                            else if (cat === 'accessibility') setCurrentTab('accessibility');
-                            else if (cat === 'seo') setCurrentTab('seo-analysis');
-                          }}
-                        />
-                      </div>
-                      <div className="lg:col-span-4">
-                        <CrawlStatsCard
-                          report={report}
-                          recentScans={recentScans}
-                          onViewDetails={() => setCurrentTab('site-audit')}
-                        />
-                      </div>
-                    </div>
+              <DashboardOverview
+                userName={currentUser.name}
+                report={report}
+                recentScans={recentScans}
+                projects={projects}
+                onOpenProjects={() => setCurrentTab('projects')}
+                onOpenTab={setCurrentTab}
+                onOpenAI={() => setIsAIOpen(true)}
+                onSelectScan={handleSelectScan}
+                onSelectIssue={setSelectedIssue}
+              />
+            )}
 
-                    {/* Third Row: Top Issues (Left) | Recent Activity (Right) */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      <div className="lg:col-span-8">
-                        <TopIssuesTable
-                          issues={report.issues}
-                          onSelectIssue={(iss) => setSelectedIssue(iss)}
-                          onViewAllIssues={() => setCurrentTab('technical')}
-                        />
-                      </div>
-                      <div className="lg:col-span-4">
-                        <RecentActivity
-                          report={report}
-                          recentScans={recentScans}
-                          onViewAllActivity={() => setCurrentTab('reports')}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </>
+            {currentTab === 'projects' && (
+              <WorkspaceHome
+                userName={currentUser.name}
+                projects={projects}
+                recentScans={recentScans}
+                report={report}
+                isScanning={isScanning}
+                scanProgress={scanProgress}
+                onAnalyzeTarget={handleStartScan}
+                onOpenTab={setCurrentTab}
+                onOpenAI={() => setIsAIOpen(true)}
+                onCreateProject={handleCreateProject}
+                onSelectScan={handleSelectScan}
+              />
             )}
 
             {currentTab === 'site-audit' && (

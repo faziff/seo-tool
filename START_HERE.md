@@ -14,7 +14,7 @@
    npm run dev
    ```
 
-5. Open the URL printed in the terminal, normally `http://localhost:3000`. The public landing page opens first; use **Start free** to create an account or **Sign in** to access an existing workspace.
+5. Open the URL printed in the terminal, normally `http://localhost:3000`. The public landing page opens first; use **Start free** to create an account or **Sign in** to access an existing workspace. The signed-in Dashboard opens first. Use **Projects** in the sidebar to create projects and run website audits.
 
 Do not open `index.html` directly. The crawler, account system, credit tracking and reports depend on the Express API. `npm start` runs the same full-stack server; for a production deployment, build first and set `NODE_ENV=production`, `JWT_SECRET` and `PORT` in the environment.
 
@@ -32,8 +32,8 @@ Never paste secret values into frontend files or share your real `.env` file.
 
 ## Workspace workflow
 
-1. Run a website audit from the Overview screen.
-2. Open the three dashboard workspaces: SEO, AEO and GEO. Run a fresh scan to populate all three. AEO/GEO use crawl-derived readiness checks; they do not claim actual AI platform citations or rankings.
+1. Open **Projects** in the sidebar and run a website audit. The Dashboard summarizes completed scan data and audit history.
+2. Open the SEO, AEO and GEO workspaces from the sidebar or Projects workspace. Run a fresh scan to populate all three. AEO/GEO use crawl-derived readiness checks; they do not claim actual AI platform citations or rankings.
 3. Use Keyword Research to build a list of keyword ideas, filter by intent and export the selected set to CSV.
 4. Use Fix Center and NOVA to draft potential improvements. Review any generated text or code before using it on a live website.
 5. Use the global header search to find tools/scans or press **Ask NOVA** to start a chat from your query. Press **Ctrl+K** (or **Cmd+K** on Mac) to focus it.
