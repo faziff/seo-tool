@@ -3,7 +3,7 @@ import {
   Activity, ArrowRight, ArrowUpRight, BarChart3, BookOpen, Check, ChevronDown,
   ChevronRight, CircleGauge, CircleHelp, Code2, Compass, FileSearch, Globe, Layers3,
   ListChecks, LockKeyhole, Menu, Network, Search, ShieldCheck, Sparkles, Target,
-  TrendingUp, Users, X, Zap
+  TrendingUp, Users, X, Zap, Link2
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -20,6 +20,8 @@ const features = [
   { icon: Users, title: 'Competitor Analysis', text: 'Review public website signals and compare areas that may need a closer look.', id: 'competitor-analysis', color: 'orange' },
   { icon: FileSearch, title: 'Content Intelligence', text: 'Improve page structure and content clarity with focused, actionable recommendations.', id: 'content-intelligence', color: 'rose' },
   { icon: BarChart3, title: 'Reporting and Insights', text: 'Bring scan findings and project context together in a readable workspace.', id: 'reporting-insights', color: 'cyan' },
+  { icon: Globe, title: 'Google Search Console', text: 'Connect verified properties to review organic clicks, impressions, CTR and search queries.', id: 'search-console', color: 'blue' },
+  { icon: Link2, title: 'Backlink Intelligence', text: 'Separate free page-level link checks from live referring-domain data supplied by a backlink provider.', id: 'backlink-intelligence', color: 'rose' },
 ];
 
 const workflow = [
@@ -72,18 +74,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
   return (
     <main className="crox-home">
       {announcementVisible && <div className="crox-home-announcement">
-        <div className="crox-home-announcement-inner"><Sparkles size={14} aria-hidden="true" /><span>CROX unites SEO, AEO and GEO workflows in one search-intelligence workspace.</span><a href="#features" onClick={() => jumpTo('#features')}>Explore product <ArrowRight size={13} /></a><button type="button" aria-label="Dismiss announcement" onClick={() => setAnnouncementVisible(false)}><X size={14} /></button></div>
+        <div className="crox-home-announcement-inner"><Sparkles size={14} aria-hidden="true" /><span>Start with a 3-day CROX Professional trial · no card required during setup.</span><a href="#features" onClick={() => jumpTo('#features')}>Explore product <ArrowRight size={13} /></a><button type="button" aria-label="Dismiss announcement" onClick={() => setAnnouncementVisible(false)}><X size={14} /></button></div>
       </div>}
 
       <header className="crox-home-header">
         <div className="crox-home-nav-wrap">
-          <a href="#top" className="crox-home-brand" aria-label="CROX home" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><img src="/crox-mark.svg" width="39" height="39" alt="" aria-hidden="true" /><span>CROX</span></a>
+          <a href="#top" className="crox-home-brand" aria-label="CROX home" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><img src="/crox-symbol.png" width="39" height="39" alt="" aria-hidden="true" /><span>CROX</span></a>
           <nav className="crox-home-nav" aria-label="Main navigation">
             {navMenus.map((menu) => <details className="crox-home-nav-dropdown" key={menu.label}>
               <summary>{menu.label}<ChevronDown size={13} /></summary>
               <div className="crox-home-dropdown-panel">{menu.links.map((link) => <a key={link.label} href={link.href} onClick={() => jumpTo(link.href)}>{link.label}<ArrowUpRight size={13} /></a>)}</div>
             </details>)}
             <a href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>How it works</a>
+            <a href="#pricing" onClick={() => jumpTo('#pricing')}>Pricing</a>
           </nav>
           <div className="crox-home-nav-actions"><button type="button" className="crox-home-login" onClick={onSignIn}>Log in</button><button type="button" className="crox-home-primary crox-home-nav-cta" onClick={onSignUp}>Create account <ArrowRight size={15} /></button></div>
           <button type="button" className="crox-home-mobile-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={21} /> : <Menu size={21} />}</button>
@@ -91,6 +94,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
         {mobileNavOpen && <nav className="crox-home-mobile-nav" aria-label="Mobile navigation">
           {navMenus.map((menu) => <div key={menu.label} className="crox-home-mobile-nav-group"><span>{menu.label}</span>{menu.links.map((link) => <a key={link.label} href={link.href} onClick={() => jumpTo(link.href)}>{link.label}<ChevronRight size={14} /></a>)}</div>)}
           <a href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>How it works <ChevronRight size={14} /></a>
+          <a href="#pricing" onClick={() => jumpTo('#pricing')}>Pricing <ChevronRight size={14} /></a>
           <div className="crox-home-mobile-auth"><button type="button" className="crox-home-login" onClick={() => { closeMobileNav(); onSignIn(); }}>Log in</button><button type="button" className="crox-home-primary" onClick={() => { closeMobileNav(); onSignUp(); }}>Create account <ArrowRight size={15} /></button></div>
         </nav>}
       </header>
@@ -114,7 +118,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
           <div className="crox-home-hero-visual" aria-label="CROX analytics interface preview with clearly labeled illustrative data">
             <div className="crox-home-orbit crox-home-orbit-one" /><div className="crox-home-orbit crox-home-orbit-two" />
             <div className="crox-dashboard-window">
-              <div className="crox-dashboard-topbar"><div className="crox-dashboard-brand"><img src="/crox-mark.svg" width="23" height="23" alt="" aria-hidden="true" /><b>CROX</b></div><span className="crox-dashboard-demo"><span /> Illustrative data</span><span className="crox-dashboard-profile">C</span></div>
+              <div className="crox-dashboard-topbar"><div className="crox-dashboard-brand"><img src="/crox-symbol.png" width="23" height="23" alt="" aria-hidden="true" /><b>CROX</b></div><span className="crox-dashboard-demo"><span /> Illustrative data</span><span className="crox-dashboard-profile">C</span></div>
               <div className="crox-dashboard-layout">
                 <aside className="crox-dashboard-sidebar"><div className="crox-dashboard-sidebar-label">WORKSPACE</div><span className="active"><BarChart3 size={14} /> Overview</span><span><FileSearch size={14} /> SEO audit</span><span><CircleHelp size={14} /> AEO</span><span><Network size={14} /> GEO</span><span><Search size={14} /> Keywords</span><span><Users size={14} /> Competitors</span><span><Sparkles size={14} /> AI visibility</span><div className="crox-dashboard-sidebar-footer"><span>ACCOUNT STATUS</span><b><i /> Workspace ready</b></div></aside>
                 <div className="crox-dashboard-content">
@@ -164,9 +168,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn, onSignUp, on
 
       <section className="crox-home-data-approach" id="data-approach"><div className="crox-home-data-symbol"><ShieldCheck size={24} /></div><div><div className="crox-home-section-kicker"><span /> BUILT AROUND CLARITY</div><h2>Useful insight starts with honest context.</h2><p>CROX distinguishes illustrative interface examples from live results. Some search metrics require an external provider, and AI-assisted features depend on configuration. We do not promise rankings or traffic outcomes.</p></div><div className="crox-home-data-checks"><span><Check size={14} /> Demo values clearly labeled</span><span><Check size={14} /> Provider dependencies explained</span><span><Check size={14} /> No guaranteed ranking claims</span></div></section>
 
-      <section className="crox-home-final-cta"><div className="crox-home-final-logo"><img src="/crox-mark.svg" width="43" height="43" alt="" aria-hidden="true" /></div><div className="crox-home-final-copy"><div className="crox-home-section-kicker">START WITH YOUR WEBSITE</div><h2>Make your next search decision with context.</h2><p>Create a CROX account to organize website scans, review insights and decide what to improve.</p></div><button type="button" className="crox-home-final-button" onClick={onSignUp}>Create your account <ArrowRight size={16} /></button></section>
+      <section className="crox-home-pricing" id="pricing">
+        <div className="crox-home-centered-heading"><div className="crox-home-section-kicker"><span /> SIMPLE, TRANSPARENT PLANS</div><h2>Start with three days.<br /><span>Choose your pace after.</span></h2><p>Explore the Professional workspace first. When the trial ends, your saved data stays available on the free tier.</p></div>
+        <div className="crox-home-pricing-grid">
+          <article className="crox-home-price-card"><span className="crox-home-plan-name">Starter</span><strong>$19<small> / month</small></strong><p>For one website and a focused SEO workflow.</p><ul><li><Check size={13} /> Core site audit and issue tracking</li><li><Check size={13} /> Keyword research workspace</li><li><Check size={13} /> Up to 5 projects</li><li><Check size={13} /> Reports and exports</li></ul><button type="button" onClick={onSignUp}>Start with CROX <ArrowRight size={14} /></button></article>
+          <article className="crox-home-price-card featured"><span className="crox-home-popular">MOST POPULAR</span><span className="crox-home-plan-name">Professional</span><strong>$49<small> / month</small></strong><p>For growing teams that need deeper search insights.</p><ul><li><Check size={13} /> Everything in Starter</li><li><Check size={13} /> Live backlink index integration</li><li><Check size={13} /> Competitor and keyword workflows</li><li><Check size={13} /> Up to 25 projects</li></ul><button type="button" onClick={onSignUp}>Start 3-day free trial <ArrowRight size={14} /></button></article>
+          <article className="crox-home-price-card"><span className="crox-home-plan-name">Agency</span><strong>$129<small> / month</small></strong><p>For consultants and multi-client workflows.</p><ul><li><Check size={13} /> Everything in Professional</li><li><Check size={13} /> Up to 100 projects</li><li><Check size={13} /> Agency reporting workflows</li><li><Check size={13} /> Team-ready account structure</li></ul><button type="button" onClick={onSignUp}>Explore Agency <ArrowRight size={14} /></button></article>
+        </div>
+        <p className="crox-home-pricing-note">Displayed launch prices are configurable. Payment collection is not enabled yet; no payment is taken during account creation.</p>
+      </section>
 
-      <footer className="crox-home-footer" id="footer"><div className="crox-home-footer-main"><div className="crox-home-footer-brand"><a href="#top" className="crox-home-brand" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><img src="/crox-mark.svg" width="35" height="35" alt="" aria-hidden="true" /><span>CROX</span></a><p>Search intelligence for clearer decisions.</p><span className="crox-home-footer-note">Built to make website and search work easier to understand.</span></div><div className="crox-home-footer-column"><b>Product</b><a href="#features" onClick={() => jumpTo('#features')}>Features</a><a href="#ai-insights" onClick={() => jumpTo('#ai-insights')}>AI-assisted workflows</a><a href="#product-preview" onClick={() => jumpTo('#product-preview')}>Product preview</a></div><div className="crox-home-footer-column"><b>Explore</b><a href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>How it works</a><a href="#data-approach" onClick={() => jumpTo('#data-approach')}>Data approach</a><button type="button" onClick={onSignIn}>Log in</button></div><div className="crox-home-footer-cta"><b>Ready to get started?</b><p>Open your CROX workspace and explore the available tools.</p><button type="button" onClick={onSignUp}>Create account <ArrowRight size={14} /></button></div></div><div className="crox-home-footer-bottom"><span>© {new Date().getFullYear()} CROX. All rights reserved.</span><span>Search insights with transparent context.</span></div></footer>
+      <section className="crox-home-final-cta"><div className="crox-home-final-logo"><img src="/crox-symbol.png" width="43" height="43" alt="" aria-hidden="true" /></div><div className="crox-home-final-copy"><div className="crox-home-section-kicker">START WITH YOUR WEBSITE</div><h2>Make your next search decision with context.</h2><p>Start a 3-day Professional trial to organize website scans, review insights and decide what to improve. No card is required during setup.</p></div><button type="button" className="crox-home-final-button" onClick={onSignUp}>Start 3-day free trial <ArrowRight size={16} /></button></section>
+
+      <footer className="crox-home-footer" id="footer"><div className="crox-home-footer-main"><div className="crox-home-footer-brand"><a href="#top" className="crox-home-brand" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><img src="/crox-symbol.png" width="35" height="35" alt="" aria-hidden="true" /><span>CROX</span></a><p>Search intelligence for clearer decisions.</p><span className="crox-home-footer-note">Built to make website and search work easier to understand.</span></div><div className="crox-home-footer-column"><b>Product</b><a href="#features" onClick={() => jumpTo('#features')}>Features</a><a href="#ai-insights" onClick={() => jumpTo('#ai-insights')}>AI-assisted workflows</a><a href="#product-preview" onClick={() => jumpTo('#product-preview')}>Product preview</a></div><div className="crox-home-footer-column"><b>Explore</b><a href="#how-it-works" onClick={() => jumpTo('#how-it-works')}>How it works</a><a href="#data-approach" onClick={() => jumpTo('#data-approach')}>Data approach</a><button type="button" onClick={onSignIn}>Log in</button></div><div className="crox-home-footer-cta"><b>Ready to get started?</b><p>Open your CROX workspace and explore the available tools.</p><button type="button" onClick={onSignUp}>Create account <ArrowRight size={14} /></button></div></div><div className="crox-home-footer-bottom"><span>© {new Date().getFullYear()} CROX. All rights reserved.</span><span>Search insights with transparent context.</span></div></footer>
     </main>
   );
 };

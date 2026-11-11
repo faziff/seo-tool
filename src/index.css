@@ -1043,3 +1043,25 @@ html[data-crox-reduce-motion="true"] *::after { animation-duration: .01ms !impor
 .crox-theme-dark .crox-exec-wide-button { background:#30363e; color:#e2e5e9; border-color:#464d56; }
 .crox-theme-dark .crox-exec-list-row:hover { background:#292f36; }
 .crox-theme-dark .crox-exec-help-button { background:#e7eaee; color:#242a31; }
+
+/* CROX updated identity and landing-page plan table. */
+.crox-home-announcement { background:#ff3038; }
+.crox-home-brand img { width:39px; height:39px; padding:3px; border-radius:11px; background:#ff3038; object-fit:contain; }
+.crox-home-footer-brand .crox-home-brand img { width:35px; height:35px; }
+.crox-home-pricing { max-width:1180px; margin:0 auto; padding:90px clamp(18px,5vw,64px) 76px; }
+.crox-home-pricing-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; margin-top:35px; }
+.crox-home-price-card { position:relative; display:flex; flex-direction:column; min-width:0; padding:26px 23px 21px; border:1px solid #e4e8ef; border-radius:18px; background:#fff; box-shadow:0 9px 30px rgba(30,44,70,.045); }
+.crox-home-price-card.featured { border:1.5px solid #ff555c; box-shadow:0 14px 36px rgba(226,48,58,.105); }
+.crox-home-plan-name { color:#28354a; font-size:14px; font-weight:800; }
+.crox-home-price-card > strong { margin:15px 0 7px; color:#18243a; font-size:37px; font-weight:850; letter-spacing:-.06em; }
+.crox-home-price-card > strong small { color:#8792a3; font-size:10px; font-weight:550; letter-spacing:0; }
+.crox-home-price-card > p { min-height:30px; margin:0 0 18px; color:#788397; font-size:10px; line-height:1.5; }
+.crox-home-price-card ul { display:flex; flex:1; flex-direction:column; gap:11px; margin:0 0 21px; padding:16px 0 0; border-top:1px solid #edf0f4; list-style:none; }
+.crox-home-price-card li { display:flex; align-items:flex-start; gap:8px; color:#57657b; font-size:10px; line-height:1.45; }
+.crox-home-price-card li svg { flex:0 0 auto; margin-top:1px; color:#2d9c62; }
+.crox-home-price-card > button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:42px; border:1px solid #dfe4ec; border-radius:10px; background:#fff; color:#344158; font-size:10px; font-weight:800; cursor:pointer; }
+.crox-home-price-card.featured > button { border-color:#f5333d; background:#f5333d; color:#fff; }
+.crox-home-price-card > button:hover { transform:translateY(-1px); }
+.crox-home-popular { position:absolute; top:0; right:20px; padding:6px 9px; border-radius:0 0 7px 7px; background:#f5333d; color:#fff; font-size:8px; font-weight:900; letter-spacing:.08em; }
+.crox-home-pricing-note { margin:19px 0 0; color:#929bad; font-size:9px; text-align:center; }
+@media (max-width:760px) { .crox-home-pricing { padding:58px 16px; } .crox-home-pricing-grid { grid-template-columns:1fr; gap:12px; } .crox-home-price-card { padding:22px 19px 18px; } }

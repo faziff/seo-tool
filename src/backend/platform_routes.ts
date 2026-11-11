@@ -2,8 +2,9 @@ import express from 'express';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { clientIp, generateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, AuthenticatedRequest } from './auth.js';
-import { addCreditsToUser, consumeCredit, getCreditSnapshot, isAdminEmail } from './credits.js';
+import { addCreditsToUser, consumeCredit, getCreditSnapshot, isAdminEmail, pakistanDayKey } from './credits.js';
 import { researchKeywords } from './keywordProvider.js';
+import { backlinkProviderConfigured, getBacklinkProfile } from './backlinkProvider.js';
 import { AIService } from './ai_service.js';
 import { validateTargetUrl } from './security.js';
 import * as cheerio from 'cheerio';
@@ -54,8 +55,16 @@ function publicProject(project: any) {
   };
 }
 
-function publicUser(user: ReturnType<typeof db.findUserById>) {
-  if (!user) return null;
+function refreshEntitlement(user: NonNullable<ReturnType<typeof db.findUserById>>) {
+  if (user.subscription_status === 'trialing' && user.trial_ends_at && Date.parse(user.trial_ends_at) <= Date.now()) {
+    return db.updateUser(user.id, { plan: 'free', subscription_status: 'trial_expired', pending_plan: null }) || user;
+  }
+  return user;
+}
+
+function publicUser(input: ReturnType<typeof db.findUserById>) {
+  if (!input) return null;
+  const user = refreshEntitlement(input);
   return {
     id: user.id,
     name: user.name,
@@ -63,7 +72,11 @@ function publicUser(user: ReturnType<typeof db.findUserById>) {
     created_at: user.created_at,
     settings: user.settings,
     is_admin: isAdminEmail(user.email),
-    plan: user.plan
+    plan: user.plan,
+    subscription_status: user.subscription_status || 'free',
+    trial_started_at: user.trial_started_at || null,
+    trial_ends_at: user.trial_ends_at || null,
+    pending_plan: user.pending_plan || null
   };
 }
 
@@ -83,17 +96,23 @@ platformRouter.post('/auth/register', (req, res) => {
   if (password !== confirm_password) return res.status(400).json({ detail: 'Your passwords do not match.' });
   if (db.findUserByEmail(cleanEmail)) return res.status(409).json({ detail: 'An account already exists for this email. Sign in instead.' });
 
+  const trialStarted = new Date();
+  const trialEnds = new Date(trialStarted.getTime() + 3 * 24 * 60 * 60 * 1000);
   const user = db.createUser({
     name: cleanName,
     email: cleanEmail,
     password_hash: hashPassword(password),
-    plan: 'free',
+    plan: 'pro',
     scans_used: 0,
-    created_at: new Date().toISOString(),
+    created_at: trialStarted.toISOString(),
     settings: {},
     extra_audits: 0,
     extra_ai: 0,
-    extra_keywords: 0
+    extra_keywords: 0,
+    subscription_status: 'trialing',
+    trial_started_at: trialStarted.toISOString(),
+    trial_ends_at: trialEnds.toISOString(),
+    pending_plan: null
   });
   const access_token = generateToken(user);
   res.status(201).json({ access_token, user: publicUser(user) });
@@ -127,6 +146,56 @@ platformRouter.post('/auth/login', (req, res) => {
 
 platformRouter.get('/auth/me', requireAuth, (req: AuthenticatedRequest, res) => {
   res.json({ ...publicUser(req.user), credits: getCreditSnapshot(req.user!) });
+});
+
+const BILLING_PLANS = {
+  starter: { name: 'Starter', monthly_price: 19, currency: 'USD', limits: 'Core SEO toolkit · 5 projects' },
+  pro: { name: 'Professional', monthly_price: 49, currency: 'USD', limits: 'Advanced research · 25 projects · live backlink data' },
+  agency: { name: 'Agency', monthly_price: 129, currency: 'USD', limits: 'Multi-client workflow · 100 projects · team-ready reporting' }
+} as const;
+
+platformRouter.get('/billing/status', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = refreshEntitlement(req.user!);
+  const remainingMs = user.trial_ends_at ? Math.max(0, Date.parse(user.trial_ends_at) - Date.now()) : 0;
+  res.json({
+    plan: user.plan,
+    subscription_status: user.subscription_status || 'free',
+    trial_started_at: user.trial_started_at || null,
+    trial_ends_at: user.trial_ends_at || null,
+    trial_days_remaining: user.subscription_status === 'trialing' ? Math.ceil(remainingMs / 86400000) : 0,
+    pending_plan: user.pending_plan || null,
+    pricing: BILLING_PLANS,
+    payment_gateway_configured: false,
+    payment_note: 'Online payment is not enabled yet. Plan requests are saved for manual approval until CROX payment details are configured.'
+  });
+});
+
+platformRouter.post('/billing/request-plan', requireAuth, (req: AuthenticatedRequest, res) => {
+  const plan = String(req.body?.plan || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(BILLING_PLANS, plan)) return res.status(400).json({ detail: 'Choose a valid CROX plan.' });
+  const user = refreshEntitlement(req.user!);
+  if (user.subscription_status === 'active' && user.plan === plan) return res.json({ status: 'active', message: 'This plan is already active.' });
+  if (user.pending_plan === plan) return res.json({ status: 'request_pending', message: 'Your request is already waiting for review.' });
+  const id = randomUUID();
+  db.createBillingRequest({ id, user_id: user.id, email: user.email, requested_plan: plan, created_at: new Date().toISOString() });
+  db.updateUser(user.id, { pending_plan: plan });
+  return res.status(202).json({ status: 'request_pending', request_id: id, message: 'Your plan request has been saved. A payment method will be enabled after CROX billing setup is complete. No charge has been made.' });
+});
+
+platformRouter.get('/admin/billing/requests', requireAuth, requireAdmin, (_req, res) => {
+  res.json(db.listBillingRequests(200));
+});
+
+platformRouter.post('/admin/billing/activate', requireAuth, requireAdmin, (req: AuthenticatedRequest, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const plan = String(req.body?.plan || '').toLowerCase();
+  const requestId = String(req.body?.request_id || '').trim();
+  if (!email || !['starter', 'pro', 'agency'].includes(plan)) return res.status(400).json({ detail: 'Provide a user email and valid plan.' });
+  const user = db.findUserByEmail(email);
+  if (!user) return res.status(404).json({ detail: 'User account was not found.' });
+  const updated = db.updateUser(user.id, { plan: plan as 'starter' | 'pro' | 'agency', subscription_status: 'active', trial_ends_at: null, pending_plan: null });
+  if (requestId) db.reviewBillingRequest(requestId, 'approved', 'Plan activated by CROX admin.');
+  return res.json({ status: 'active', user: publicUser(updated) });
 });
 
 platformRouter.get('/auth/google/status', (_req, res) => {
@@ -205,13 +274,17 @@ platformRouter.get('/auth/google/callback', async (req, res) => {
         name: String(profile.name || email.split('@')[0]).trim().slice(0, 100) || 'CROX User',
         email,
         password_hash: hashPassword(randomBytes(48).toString('hex')),
-        plan: 'free',
+        plan: 'pro',
         scans_used: 0,
         created_at: new Date().toISOString(),
         settings: { auth_provider: 'google', google_sub: profile.sub || null },
         extra_audits: 0,
         extra_ai: 0,
-        extra_keywords: 0
+        extra_keywords: 0,
+        subscription_status: 'trialing',
+        trial_started_at: new Date().toISOString(),
+        trial_ends_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        pending_plan: null
       });
     } else if (user.settings?.google_sub !== profile.sub && profile.sub) {
       // Link the verified Google subject to an existing email account without
@@ -468,6 +541,24 @@ platformRouter.post('/backlinks/analyze', requireAuth, async (req: Authenticated
   const raw = String(req.body?.url || req.body?.domain || '').trim();
   const validation = await validateTargetUrl(raw);
   if (!validation.valid) return res.status(400).json({ detail: validation.error || 'Enter a public website to inspect.' });
+  const mode = String(req.body?.mode || 'free') === 'live' ? 'live' : 'free';
+  if (mode === 'live') {
+    const user = refreshEntitlement(req.user!);
+    if (!['trialing', 'active'].includes(String(user.subscription_status)) || user.plan === 'free') {
+      return res.status(402).json({ upgrade_required: true, detail: 'Live referring-domain and backlink-index data is available on an active CROX trial or paid plan.' });
+    }
+    if (!backlinkProviderConfigured()) return res.status(503).json({ provider_not_configured: true, detail: 'Live backlink data is not connected. Add DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD to the server environment.' });
+    const lookupLimit = user.subscription_status === 'trialing' ? 1 : (user.plan === 'agency' ? 40 : user.plan === 'pro' ? 15 : 5);
+    if (!db.consumeBacklinkLookup(user.id, pakistanDayKey(), lookupLimit)) {
+      return res.status(429).json({ detail: `Daily live backlink lookup allowance reached (${lookupLimit}/day). The allowance resets at midnight Pakistan time.` });
+    }
+    try {
+      const profile = await getBacklinkProfile(validation.hostname, 50);
+      return res.json({ mode: 'live', provider: 'DataForSEO Backlinks API', summary: profile.summary, backlinks: profile.backlinks, checked_at: new Date().toISOString(), note: 'Live provider metrics. Data coverage and refresh timing depend on the external backlink index.' });
+    } catch (error: any) {
+      return res.status(502).json({ detail: String(error?.message || 'Live backlink provider request failed.').slice(0, 260) });
+    }
+  }
   try {
     const response = await fetch(validation.normalizedUrl, {
       signal: AbortSignal.timeout(9000),
@@ -482,25 +573,21 @@ platformRouter.post('/backlinks/analyze', requireAuth, async (req: Authenticated
       try {
         const abs = new URL(href, validation.normalizedUrl);
         if (!abs.hostname.endsWith(host) && abs.protocol.startsWith('http')) {
-          outbound.push({
-            url: abs.toString(),
-            rel: String($(el).attr('rel') || ''),
-            text: $(el).text().trim().slice(0, 80)
-          });
+          outbound.push({ url: abs.toString(), rel: String($(el).attr('rel') || ''), text: $(el).text().trim().slice(0, 160) });
         }
-      } catch { /* ignore */ }
+      } catch { /* Ignore malformed hrefs. */ }
     });
-    const unique = [...new Map(outbound.map(item => [item.url, item])).values()].slice(0, 40);
-    res.json({
-      domain: host,
-      pages_inspected: 1,
-      outbound_links: unique.length,
-      nofollow_count: unique.filter(l => /nofollow/i.test(l.rel)).length,
+    const unique = Array.from(new Map(outbound.map(item => [item.url, item])).values()).slice(0, 100);
+    return res.json({
+      mode: 'free', provider: 'CROX page crawl', target: host,
+      outbound_external_links: unique.length,
+      nofollow_outbound: unique.filter(item => /nofollow/i.test(item.rel)).length,
+      dofollow_outbound: unique.filter(item => !/nofollow/i.test(item.rel)).length,
       links: unique,
-      note: 'This is a homepage outbound-link snapshot, not a full backlink index. Connect a link-data provider later for referring domains and inbound links.'
+      note: 'Free snapshot of external links found on the submitted homepage. These are outgoing links, not backlinks pointing to your domain. Use Live Backlink Index for referring domains and inbound links.'
     });
   } catch {
-    res.status(502).json({ detail: 'Could not inspect the public homepage for outbound links.' });
+    return res.status(502).json({ detail: 'Could not inspect the public homepage for outbound links.' });
   }
 });
 

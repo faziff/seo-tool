@@ -37,7 +37,11 @@ export interface User {
   created_at: string;
   settings?: Record<string, any>;
   is_admin?: boolean;
-  plan?: 'free' | 'pro' | 'agency';
+  plan?: 'free' | 'starter' | 'pro' | 'agency';
+  subscription_status?: 'free' | 'trialing' | 'trial_expired' | 'active';
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  pending_plan?: string | null;
   credits?: CreditSnapshot;
 }
 

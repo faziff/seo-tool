@@ -11,13 +11,17 @@ export interface UserEntity {
   name: string;
   email: string;
   password_hash: string;
-  plan: 'free' | 'pro' | 'agency';
+  plan: 'free' | 'starter' | 'pro' | 'agency';
   scans_used: number;
   created_at: string;
   settings: Record<string, any>;
   extra_audits: number;
   extra_ai: number;
   extra_keywords: number;
+  subscription_status?: 'free' | 'trialing' | 'trial_expired' | 'active';
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  pending_plan?: string | null;
 }
 
 export interface WebsiteEntity {
@@ -234,7 +238,28 @@ CREATE TABLE IF NOT EXISTS users (
   settings TEXT NOT NULL DEFAULT '{}',
   extra_audits INTEGER NOT NULL DEFAULT 0,
   extra_ai INTEGER NOT NULL DEFAULT 0,
-  extra_keywords INTEGER NOT NULL DEFAULT 0
+  extra_keywords INTEGER NOT NULL DEFAULT 0,
+  subscription_status TEXT NOT NULL DEFAULT 'free',
+  trial_started_at TEXT,
+  trial_ends_at TEXT,
+  pending_plan TEXT
+);
+CREATE TABLE IF NOT EXISTS billing_requests (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  email TEXT NOT NULL,
+  requested_plan TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  admin_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_billing_requests_status_created ON billing_requests(status, created_at DESC);
+CREATE TABLE IF NOT EXISTS backlink_daily_usage (
+  user_id INTEGER NOT NULL,
+  day_key TEXT NOT NULL,
+  lookups INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(user_id, day_key)
 );
 CREATE TABLE IF NOT EXISTS user_ai_credentials (
   user_id INTEGER NOT NULL,
@@ -497,7 +522,11 @@ function mapUser(row: any): UserEntity {
     settings,
     extra_audits: row.extra_audits || 0,
     extra_ai: row.extra_ai || 0,
-    extra_keywords: row.extra_keywords || 0
+    extra_keywords: row.extra_keywords || 0,
+    subscription_status: String(row.subscription_status || 'free') as UserEntity['subscription_status'],
+    trial_started_at: row.trial_started_at ? String(row.trial_started_at) : null,
+    trial_ends_at: row.trial_ends_at ? String(row.trial_ends_at) : null,
+    pending_plan: row.pending_plan ? String(row.pending_plan) : null
   };
 }
 
@@ -655,6 +684,11 @@ class DatabaseStore {
 
     this.driver = new SqlJsDriver(database);
     this.driver.exec(SCHEMA);
+    const userColumns = new Set(this.all('PRAGMA table_info(users)').map((column: any) => String(column.name)));
+    if (!userColumns.has('subscription_status')) this.run("ALTER TABLE users ADD COLUMN subscription_status TEXT NOT NULL DEFAULT 'free'");
+    if (!userColumns.has('trial_started_at')) this.run('ALTER TABLE users ADD COLUMN trial_started_at TEXT');
+    if (!userColumns.has('trial_ends_at')) this.run('ALTER TABLE users ADD COLUMN trial_ends_at TEXT');
+    if (!userColumns.has('pending_plan')) this.run('ALTER TABLE users ADD COLUMN pending_plan TEXT');
     this.ready = true;
     this.persistSync();
     console.log(`[CROX DB] SQLite ready at ${this.dbPath} (sql.js adapter)`);
@@ -828,11 +862,12 @@ class DatabaseStore {
 
   public createUser(user: Omit<UserEntity, 'id'>): UserEntity {
     this.run(
-      `INSERT INTO users (name, email, password_hash, plan, scans_used, created_at, settings, extra_audits, extra_ai, extra_keywords)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (name, email, password_hash, plan, scans_used, created_at, settings, extra_audits, extra_ai, extra_keywords, subscription_status, trial_started_at, trial_ends_at, pending_plan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user.name, user.email.toLowerCase(), user.password_hash, user.plan, user.scans_used, user.created_at,
-        JSON.stringify(user.settings || {}), user.extra_audits || 0, user.extra_ai || 0, user.extra_keywords || 0
+        JSON.stringify(user.settings || {}), user.extra_audits || 0, user.extra_ai || 0, user.extra_keywords || 0,
+        user.subscription_status || 'free', user.trial_started_at || null, user.trial_ends_at || null, user.pending_plan || null
       ]
     );
     const created = this.findUserByEmail(user.email);
@@ -846,10 +881,11 @@ class DatabaseStore {
     if (!current) return undefined;
     const next = { ...current, ...updates };
     this.run(
-      `UPDATE users SET name=?, email=?, password_hash=?, plan=?, scans_used=?, settings=?, extra_audits=?, extra_ai=?, extra_keywords=? WHERE id=?`,
+      `UPDATE users SET name=?, email=?, password_hash=?, plan=?, scans_used=?, settings=?, extra_audits=?, extra_ai=?, extra_keywords=?, subscription_status=?, trial_started_at=?, trial_ends_at=?, pending_plan=? WHERE id=?`,
       [
         next.name, next.email, next.password_hash, next.plan, next.scans_used,
-        JSON.stringify(next.settings || {}), next.extra_audits, next.extra_ai, next.extra_keywords, id
+        JSON.stringify(next.settings || {}), next.extra_audits, next.extra_ai, next.extra_keywords,
+        next.subscription_status || 'free', next.trial_started_at || null, next.trial_ends_at || null, next.pending_plan || null, id
       ]
     );
     this.saveImmediately();
@@ -1252,6 +1288,33 @@ class DatabaseStore {
     ]);
     this.save();
     return this.get('SELECT * FROM tracked_keywords WHERE id = ?', [id]) as TrackedKeyword;
+  }
+
+  public createBillingRequest(request: { id: string; user_id: number; email: string; requested_plan: string; created_at: string }): void {
+    this.run('INSERT INTO billing_requests (id, user_id, email, requested_plan, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [request.id, request.user_id, request.email, request.requested_plan, 'pending', request.created_at]);
+    this.saveImmediately();
+  }
+
+  public listBillingRequests(limit = 100): Array<Record<string, any>> {
+    return this.all('SELECT * FROM billing_requests ORDER BY created_at DESC LIMIT ?', [Math.max(1, Math.min(500, limit))]);
+  }
+
+  public reviewBillingRequest(id: string, status: 'approved' | 'rejected', adminNote = ''): void {
+    this.run('UPDATE billing_requests SET status=?, reviewed_at=?, admin_note=? WHERE id=?',
+      [status, new Date().toISOString(), adminNote.slice(0, 500), id]);
+    this.saveImmediately();
+  }
+
+  public consumeBacklinkLookup(userId: number, dayKey: string, dailyLimit: number): boolean {
+    const row = this.get('SELECT lookups FROM backlink_daily_usage WHERE user_id = ? AND day_key = ?', [userId, dayKey]);
+    const used = Number(row?.lookups || 0);
+    if (used >= dailyLimit) return false;
+    this.run(`INSERT INTO backlink_daily_usage (user_id, day_key, lookups) VALUES (?, ?, 1)
+      ON CONFLICT(user_id, day_key) DO UPDATE SET lookups=backlink_daily_usage.lookups + 1`, [userId, dayKey]);
+    this.run('DELETE FROM backlink_daily_usage WHERE day_key < ?', [dayKey.slice(0, 7) + '-01']);
+    this.save();
+    return true;
   }
 }
 

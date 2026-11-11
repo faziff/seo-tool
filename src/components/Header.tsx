@@ -10,12 +10,15 @@ interface HeaderProps {
   onOpenAI: () => void;
   onAskAI: (message: string) => void;
   onOpenSettings: () => void;
+  onOpenPricing: () => void;
   onOpenProjects: () => void;
   onToggleTheme: () => void;
   onLogout: () => void;
   theme: 'light' | 'dark';
   userName: string;
   credits: CreditSnapshot | null;
+  subscriptionStatus?: string;
+  trialEndsAt?: string | null;
 }
 
 const searchCommands = [
@@ -25,16 +28,18 @@ const searchCommands = [
   { label: 'SEO Analysis', terms: ['seo analysis', 'metadata', 'title tag'], query: 'seo analysis', description: 'Inspect on-page SEO signals' },
   { label: 'Performance', terms: ['performance', 'speed', 'vitals'], query: 'performance', description: 'Review technical performance signals' },
   { label: 'Keyword Research', terms: ['keyword', 'keywords'], query: 'keyword research', description: 'Explore keyword ideas and intent' },
+  { label: 'Google Search Console', terms: ['search console', 'gsc', 'google search console'], query: 'search console', description: 'Review clicks, impressions and search queries' },
   { label: 'Competitor Analysis', terms: ['competitor', 'market research'], query: 'market research', description: 'Compare competitor page signals' },
   { label: 'Backlink Analysis', terms: ['backlink', 'backlinks', 'link building'], query: 'backlinks', description: 'Open backlink analysis' },
+  { label: 'Plans & Billing', terms: ['pricing', 'plans', 'billing', 'upgrade'], query: 'pricing', description: 'Review CROX plans and your trial status' },
   { label: 'Rank Tracking', terms: ['rank tracking', 'position tracking', 'rankings'], query: 'position tracking', description: 'Open keyword position tracking' },
   { label: 'Reports', terms: ['report', 'export', 'pdf', 'csv'], query: 'reports', description: 'Open saved reports and exports' },
   { label: 'Settings & Integrations', terms: ['setting', 'api', 'provider', 'key', 'integration'], query: 'settings', description: 'Manage AI providers and integrations' }
 ];
 
 export const Header: React.FC<HeaderProps> = ({
-  onOpenMobileMenu, onOpenAI, onAskAI, onOpenSettings, onOpenProjects,
-  onToggleTheme, onLogout, theme, userName, credits
+  onOpenMobileMenu, onOpenAI, onAskAI, onOpenSettings, onOpenPricing, onOpenProjects,
+  onToggleTheme, onLogout, theme, userName, credits, subscriptionStatus, trialEndsAt
 }) => {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -104,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
     const value = query.trim();
     if (!value) return;
     const normalized = value.toLowerCase();
-    const toolMatch = searchCommands.find(item => item.label.toLowerCase() === normalized || item.terms.some(term => term === normalized));
+    const toolMatch = searchCommands.find(item => item.label.toLowerCase() === normalized || item.query === normalized || item.terms.some(term => term === normalized));
     if (toolMatch) openSearchTarget(toolMatch.query);
     else if (/^(ask\s+)?ai\b/i.test(value) || isAssistantRequest(value)) askAI(value.replace(/^(ask\s+)?ai\s*[:,]?\s*/i, ''));
     else openSearchTarget(value);
@@ -127,7 +132,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="crox-ref-topbar">
       <div className="crox-ref-brand-area">
         <button type="button" className="crox-ref-mobile-menu" onClick={onOpenMobileMenu} aria-label="Open navigation menu"><Menu size={21} /></button>
-        <div className="crox-ref-brand-lockup"><span className="crox-ref-brand-icon"><img src="/crox-reference-logo.png" alt="" /></span><span>Crox</span></div>
+        <div className="crox-ref-brand-lockup"><span className="crox-ref-brand-icon crox-brand-symbol"><img src="/crox-symbol.png" alt="" /></span><span>CROX</span></div>
       </div>
 
       <div className="crox-ref-search-wrap" ref={searchWrapRef}>
@@ -166,13 +171,16 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="crox-ref-top-actions">
+        {subscriptionStatus === 'trialing' && <button type="button" className="crox-trial-chip" onClick={onOpenPricing}><span className="crox-trial-dot" /> Trial · {trialEndsAt ? `${Math.max(0, Math.ceil((Date.parse(trialEndsAt) - Date.now()) / 86400000))}d left` : '3 days'}</button>}
+        {subscriptionStatus === 'trial_expired' && <button type="button" className="crox-trial-chip expired" onClick={onOpenPricing}>Choose a plan <ArrowRight size={13} /></button>}
         <button type="button" className="crox-ref-create-tool" onClick={onOpenProjects}><Sparkles size={17} /> <span>Create a Tool</span></button>
-        <button type="button" className="crox-ref-top-link" onClick={onOpenSettings}><CreditCard size={15} /> <span>Pricing</span></button>
+        <button type="button" className="crox-ref-top-link" onClick={onOpenPricing}><CreditCard size={15} /> <span>Pricing</span></button>
         <button type="button" className="crox-ref-top-link enterprise" onClick={onOpenAI}><Building2 size={15} /> <span>Enterprise</span></button>
         <div className="crox-ref-more-wrap" ref={menuRef}>
           <button type="button" className="crox-ref-top-link" onClick={() => setMoreOpen(value => !value)} aria-expanded={moreOpen}>More <ChevronDown size={15} /></button>
           {moreOpen && <div className="crox-ref-more-menu">
             <button type="button" onClick={() => { setMoreOpen(false); onOpenAI(); }}><Sparkles size={15} /> CROX AI Assistant</button>
+            <button type="button" onClick={() => { setMoreOpen(false); onOpenPricing(); }}><CreditCard size={15} /> Plans & Billing</button>
             <button type="button" onClick={() => { setMoreOpen(false); onOpenSettings(); }}><Settings2 size={15} /> Settings & Integrations</button>
             <button type="button" onClick={() => { setMoreOpen(false); onToggleTheme(); }}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} Switch theme</button>
             <button type="button" onClick={() => { setMoreOpen(false); onLogout(); }}><LogOut size={15} /> Sign out</button>

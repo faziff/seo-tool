@@ -24,6 +24,9 @@ import { SettingsPage } from './pages/SettingsPage';
 import { KeywordResearchPage } from './pages/KeywordResearchPage';
 import { MarketResearchPage } from './pages/MarketResearchPage';
 import { SearchPillarPage } from './pages/SearchPillarPage';
+import { SearchConsolePage } from './pages/SearchConsolePage';
+import { BacklinkAnalysisPage } from './pages/BacklinkAnalysisPage';
+import { PricingPage } from './pages/PricingPage';
 
 import {
   startScan,
@@ -126,11 +129,27 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!currentUser || currentUser.subscription_status !== 'trialing') return;
+    const checkTrial = async () => {
+      const refreshed = await fetchCurrentUser();
+      if (!refreshed) return;
+      setCurrentUser(refreshed);
+      if (refreshed.subscription_status === 'trial_expired') setCurrentTab('pricing');
+    };
+    const timer = window.setInterval(() => { void checkTrial(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [currentUser?.id, currentUser?.subscription_status]);
+
+  useEffect(() => {
     if (authReady && !currentUser && (pagePath === '/app' || pagePath.startsWith('/app/'))) navigate('/login', true);
     // Keep the public landing page at `/` for both signed-out and signed-in visitors.
     // Only auth screens should redirect an already signed-in user into the workspace.
     if (authReady && currentUser && (pagePath === '/login' || pagePath === '/signup' || pagePath === '/register')) navigate('/app', true);
   }, [authReady, currentUser, pagePath]);
+
+  useEffect(() => {
+    if (authReady && currentUser?.subscription_status === 'trial_expired') setCurrentTab('pricing');
+  }, [authReady, currentUser?.subscription_status]);
 
   useEffect(() => {
     const handleAskAI = (event: Event) => {
@@ -152,6 +171,8 @@ export default function App() {
         { terms: ['project', 'projects'], tab: 'projects' },
         { terms: ['keyword gap'], tab: 'keyword-gap' },
         { terms: ['keyword', 'keywords'], tab: 'keyword-research' },
+        { terms: ['search console', 'google search console', 'gsc'], tab: 'search-console' },
+        { terms: ['pricing', 'plans', 'billing', 'upgrade'], tab: 'pricing' },
         { terms: ['content', 'content ideas'], tab: 'content' },
         { terms: ['backlink', 'link building'], tab: 'backlinks' },
         { terms: ['position tracking', 'rank tracking'], tab: 'position-tracking' },
@@ -407,12 +428,15 @@ export default function App() {
         onOpenAI={() => setIsAIOpen(true)}
         onAskAI={(message) => { setAiInitialPrompt({ message, nonce: Date.now() }); setIsAIOpen(true); }}
         onOpenSettings={() => setCurrentTab('settings')}
+        onOpenPricing={() => setCurrentTab('pricing')}
         onOpenProjects={() => setCurrentTab('projects')}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
         onLogout={handleLogout}
         theme={theme}
         userName={currentUser.name}
         credits={credits}
+        subscriptionStatus={currentUser.subscription_status}
+        trialEndsAt={currentUser.trial_ends_at}
       />
 
       <div className="crox-ref-app-body flex-1 flex w-full min-w-0">
@@ -427,7 +451,7 @@ export default function App() {
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Viewport Content */}
-          <main className="crox-ref-main flex-1 w-full min-w-0">
+          <main key={currentTab} className="crox-ref-main flex-1 w-full min-w-0">
             {/* Scan Error Banner */}
             {scanError && (
               <div className="p-4 bg-rose-50 border border-rose-200/80 rounded-2xl flex items-start justify-between gap-3 text-rose-900 text-xs animate-in fade-in">
@@ -526,6 +550,12 @@ export default function App() {
 
             {currentTab === 'keyword-research' && <KeywordResearchPage />}
 
+            {currentTab === 'search-console' && <SearchConsolePage projects={projects} onOpenSettings={() => setCurrentTab('settings')} />}
+
+            {currentTab === 'backlinks' && <BacklinkAnalysisPage onOpenPricing={() => setCurrentTab('pricing')} />}
+
+            {currentTab === 'pricing' && <PricingPage />}
+
             {currentTab === 'market-research' && <MarketResearchPage />}
 
             {currentTab === 'fix-center' && (
@@ -612,7 +642,7 @@ export default function App() {
 
             {currentTab === 'settings' && <SettingsPage user={currentUser} projects={projects} theme={theme} onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />}
 
-            {['ai-visibility', 'local-seo', 'advertising', 'ai-pr', 'social', 'position-tracking', 'keyword-gap', 'backlinks'].includes(currentTab) && (
+            {['ai-visibility', 'local-seo', 'advertising', 'ai-pr', 'social', 'position-tracking', 'keyword-gap'].includes(currentTab) && (
               <ModulePreviewPage moduleId={currentTab} onOpenTab={setCurrentTab} />
             )}
           </main>

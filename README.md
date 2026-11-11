@@ -94,3 +94,22 @@ npm run test:backend
 AEO and GEO scores are crawl-derived readiness assessments, not measurements of actual ChatGPT, Gemini, Perplexity or Google AI Overviews mentions, citations, answer inclusion or ranking. Older scans need to be re-crawled before the new AEO/GEO signal snapshot can be assessed. Structured data is treated as context only and must match visible page content.
 
 Crawler findings are generated from the publicly reachable pages inspected during a scan. Keyword suggestions and difficulty labels may be heuristic; verified search volume/CPC, rankings, a full inbound backlink index, and competitor traffic analytics require their respective live data providers. A saved fix is a reviewable draft; approval does not automatically deploy code to the audited site.
+
+
+## CROX trial, billing and SEO data integrations
+
+- New email and Google-created accounts start a **three-day Professional trial**. The trial start and expiry are stored in SQLite and checked by the API; when it expires, CROX downgrades the entitlement to the free workspace and the signed-in app opens Plans & Billing.
+- Existing free allowances are unchanged: **3 site audits, 15 AI messages and 5 keyword research requests per Pakistan (Asia/Karachi) day**. Projects and saved reports remain in the account after trial expiry.
+- Plans & Billing currently records upgrade requests for admin review. Payment collection is intentionally disabled until a real payment gateway or virtual account is configured. No payment is charged by choosing a plan.
+- Google Search Console and Google Analytics use the existing read-only Google OAuth flow. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_DATA_REDIRECT_URI`, register that exact callback in Google Cloud, enable the Search Console API and Analytics APIs, then connect a Google account and map a verified property to a CROX project under Settings & Integrations.
+- The Search Console screen reads live clicks, impressions, CTR, average position and top queries from the selected property. Google may delay the newest reporting days.
+- Free Backlink Analysis crawls the submitted homepage and lists outgoing external links; those are **not** inbound backlinks. Live inbound backlink/referring-domain metrics require `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD`. DataForSEO charges per API request/row; the CROX trial is limited to one live lookup per day, while active plan quotas are controlled server-side.
+- The Backlink Analysis page also links to free/paid third-party backlink sources. Ownership verification and each provider's own rate limits/pricing still apply.
+
+### Billing setup still required before collecting payments
+
+Configure a payment provider and webhook verification first, then replace the manual plan-request flow with verified subscription events. Do not mark a user as paid based only on a browser redirect or an unverified request. `ADMIN_EMAIL` controls the private billing review/activation endpoints.
+
+### CROX brand assets
+
+`public/crox-symbol.png` is the isolated symbol supplied in the rebrand reference. The custom one-finger hand cursor is `public/crox-pointer.svg` and is applied to interactive controls; system cursors remain available for text selection and accessibility.

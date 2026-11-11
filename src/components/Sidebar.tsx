@@ -30,7 +30,8 @@ const navGroups = [
       { label: 'Site Audit', tab: 'site-audit', icon: Globe },
       { label: 'Technical Issues', tab: 'technical', icon: CircleAlert },
       { label: 'Performance', tab: 'performance', icon: Gauge },
-      { label: 'Accessibility', tab: 'accessibility', icon: ClipboardCheck }
+      { label: 'Accessibility', tab: 'accessibility', icon: ClipboardCheck },
+      { label: 'Google Search Console', tab: 'search-console', icon: Search }
     ]
   },
   {
@@ -145,6 +146,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, isMob
               );
             })}
             <div className="crox-ref-nav-divider" />
+            <button type="button" className={`crox-ref-nav-item ${currentTab === 'pricing' ? 'active' : ''}`} onClick={() => select('pricing')} aria-current={currentTab === 'pricing' ? 'page' : undefined}>
+              <Crown size={17} strokeWidth={1.9} /><span>Plans & Billing</span>
+            </button>
             <button type="button" className={`crox-ref-nav-item ${currentTab === 'settings' ? 'active' : ''}`} onClick={() => select('settings')} aria-current={currentTab === 'settings' ? 'page' : undefined}>
               <Settings2 size={17} strokeWidth={1.9} /><span>Settings & Integrations</span>
             </button>
@@ -154,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, isMob
           <div className="crox-ref-upgrade-card">
             <div className="crox-ref-upgrade-title"><Crown size={17} fill="currentColor" /> Upgrade to Pro</div>
             <p>Unlock higher limits and advanced workflows.</p>
-            <button type="button" onClick={() => select('settings')}>View plans <Settings2 size={13} /></button>
+            <button type="button" onClick={() => select('pricing')}>View plans <Settings2 size={13} /></button>
           </div>
         </div>
       </aside>

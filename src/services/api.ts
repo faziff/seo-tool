@@ -424,6 +424,48 @@ export async function getGoogleDataDashboard(projectId: string, days = 30): Prom
   return googleDataRequest(`/api/analytics/dashboard?project_id=${encodeURIComponent(projectId)}&days=${days}`);
 }
 
+export interface BillingStatus {
+  plan: string;
+  subscription_status: 'free' | 'trialing' | 'trial_expired' | 'active';
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  trial_days_remaining: number;
+  pending_plan: string | null;
+  pricing: Record<string, { name: string; monthly_price: number; currency: string; limits: string }>;
+  payment_gateway_configured: boolean;
+  payment_note: string;
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return googleDataRequest('/api/billing/status');
+}
+
+export async function requestBillingPlan(plan: string): Promise<{ status: string; message: string; request_id?: string }> {
+  return googleDataRequest('/api/billing/request-plan', { method: 'POST', body: JSON.stringify({ plan }) });
+}
+
+export interface BacklinkAnalysisResponse {
+  mode: 'free' | 'live';
+  provider: string;
+  target?: string;
+  summary?: {
+    target: string; rank: number | null; backlinks: number; referring_domains: number; referring_pages: number;
+    referring_ips: number; referring_subnets: number; dofollow: number | null; nofollow: number | null;
+    broken_backlinks: number | null; spam_score: number | null; crawled_pages: number | null; checked_at: string;
+  };
+  backlinks?: Array<{ source_domain: string; source_url: string; target_url: string; anchor: string; dofollow: boolean | null; rank: number | null; first_seen: string | null; last_seen: string | null }>;
+  outbound_external_links?: number;
+  nofollow_outbound?: number;
+  dofollow_outbound?: number;
+  links?: Array<{ url: string; rel: string; text: string }>;
+  note: string;
+  checked_at?: string;
+}
+
+export async function analyzeBacklinks(url: string, mode: 'free' | 'live'): Promise<BacklinkAnalysisResponse> {
+  return googleDataRequest('/api/backlinks/analyze', { method: 'POST', body: JSON.stringify({ url, mode }) });
+}
+
 // ==========================================
 // KEYWORD & COMPETITOR INTELLIGENCE
 // ==========================================

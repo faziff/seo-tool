@@ -13,6 +13,8 @@ import { consumeCredit } from './credits.js';
 import { buildPageChecklist } from './page_checklist.js';
 import { dataForSeoConfigured } from './keywordProvider.js';
 import { agentConfigured } from './agent.js';
+import { getGoogleDataConnectionStatus } from './google_data.js';
+import { backlinkProviderConfigured } from './backlinkProvider.js';
 import { getAIProviderStatus, getAIProviderSettings, getAIProviderUsage, getDefaultAIProviderOrder, getProviderDefinition, testAIProvider, type UserFacingAIProvider } from './ai_provider.js';
 import { encryptProviderKey } from './ai_key_vault.js';
 import { secretFingerprint, withRequestCache } from './request_cache.js';
@@ -967,6 +969,7 @@ apiRouter.get('/integrations/status', requireAuth, (req: AuthenticatedRequest, r
   const geminiConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY_1);
   const pageSpeedConfigured = Boolean(process.env.PAGESPEED_API_KEY);
   const aiProvider = getAIProviderStatus(req.user!.id);
+  const googleDataStatus = getGoogleDataConnectionStatus(req.user!.id);
   res.json({
     ai: { provider: aiProvider.provider, configured: aiProvider.configured, mode: aiProvider.mode, model: aiProvider.model, note: aiProvider.note },
     gemini: { configured: geminiConfigured, model: process.env.GEMINI_MODEL || 'gemini-3.8-flash' },
@@ -987,7 +990,8 @@ apiRouter.get('/integrations/status', requireAuth, (req: AuthenticatedRequest, r
       status: pageSpeedConfigured ? 'connected' : 'not_configured',
       description: pageSpeedConfigured ? 'Google PageSpeed Insights API is configured.' : 'Add PAGESPEED_API_KEY to enable Lighthouse lab reports.'
     },
-    google_search_console: { status: 'not_connected', description: 'Search Console OAuth is not implemented in this build.' },
-    stripe_billing: { status: 'not_connected', description: 'Billing integration is not implemented in this build.' }
+    google_search_console: { status: googleDataStatus.connected ? 'connected' : (googleDataStatus.oauth_configured ? 'not_connected' : 'not_configured'), description: googleDataStatus.connected ? `Connected as ${googleDataStatus.google_email || 'Google account'}.` : (googleDataStatus.oauth_configured ? 'Connect a Google account and select a Search Console property in Settings.' : 'Add Google OAuth client credentials to enable Search Console connection.') },
+    backlinks: { status: backlinkProviderConfigured() ? 'connected' : 'not_configured', provider: 'DataForSEO Backlinks API', description: backlinkProviderConfigured() ? 'Live backlink index credentials are configured.' : 'Configure DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD for live referring-domain data.' },
+    billing: { status: 'manual_setup', description: 'Three-day trial and plan requests are active. Payment processing will be enabled after a payment provider is configured.' }
   });
 });
