@@ -1,0 +1,16 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Local scan history, audit issues, and saved Fix Center drafts
+.data/
+# Legacy local SQLite account / scan data (do not commit or bundle)
+crox.db
+crox.sqlite
+*.sqlite
+*.sqlite.tmp

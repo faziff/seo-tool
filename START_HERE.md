@@ -1,0 +1,52 @@
+# CROX — Start Here
+
+## Run on Windows
+
+1. Extract the ZIP to a folder.
+2. Install Node.js 22 or later.
+3. Open PowerShell in the project folder.
+4. Install dependencies and create your local environment file:
+
+   ```powershell
+   npm install
+   Copy-Item .env.example .env
+   notepad .env
+   npm run dev
+   ```
+
+5. Open the URL printed in the terminal, normally `http://localhost:3000`. The public landing page opens first; use **Start free** to create an account or **Sign in** to access an existing workspace. The signed-in Dashboard opens first. Use **Projects** in the sidebar to create projects and run website audits.
+
+Do not open `index.html` directly. The crawler, account system, credit tracking and reports depend on the Express API. `npm start` runs the same full-stack server; for a production deployment, build first and set `NODE_ENV=production`, `JWT_SECRET` and `PORT` in the environment.
+
+## Setup notes
+
+- `JWT_SECRET` must be a unique random secret of at least 32 characters in production. The development-only fallback is not appropriate for public deployment.
+- CROX AI supports six account-level providers: Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Groq and Mistral. After signing in, add one or more keys in **Settings → Integrations**, test each connection, choose a model, and move providers up/down to set fallback priority. Keys are encrypted server-side and are never returned to the browser. Set a stable `AI_KEYS_ENCRYPTION_SECRET` (32+ characters) or a stable `JWT_SECRET` before saving keys. Each provider may bill API usage separately. If no provider is configured, CROX uses local/heuristic fallback guidance. `AI_CACHE_TTL_SECONDS` and `API_CACHE_TTL_SECONDS` default to 300 seconds.
+- Google sign-in is optional. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the exact registered `GOOGLE_REDIRECT_URI` to enable its button; email/password login works without Google setup.
+- `PAGESPEED_API_KEY` enables real PageSpeed Insights data.
+- `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` enable provider-backed keyword metrics when configured.
+- `ADMIN_EMAIL` identifies the account that may use the protected admin user/credit routes.
+- `DB_PATH` optionally overrides the local SQLite-compatible data-store path. Keep database files separate from source packages and backups.
+
+Never paste secret values into frontend files or share your real `.env` file.
+
+## Workspace workflow
+
+1. Open **Projects** in the sidebar and run a website audit. The Dashboard summarizes completed scan data and audit history.
+2. Open the SEO, AEO and GEO workspaces from the sidebar or Projects workspace. Run a fresh scan to populate all three. AEO/GEO use crawl-derived readiness checks; they do not claim actual AI platform citations or rankings.
+3. Use Keyword Research to build a list of keyword ideas, filter by intent and export the selected set to CSV.
+4. Use Fix Center and CROX AI to draft potential improvements. Review any generated text or code before using it on a live website.
+5. Use the global header search to find tools/scans or press **Ask CROX AI** to start a chat from your query. Press **Ctrl+K** (or **Cmd+K** on Mac) to focus it.
+6. Check the header credits bar for remaining daily audit, AI and keyword allowances. Default allowances reset at midnight Pakistan time.
+
+## SEO, AEO and GEO
+
+The dashboard starts with three workspaces. SEO covers the technical and on-page audit. AEO evaluates crawlable question/answer structure and answer-friendly content. GEO evaluates entity clarity, evidence, authorship/freshness and structured context. Older scans should be re-crawled to collect the new AEO/GEO signals. These scores are readiness assessments—not actual ChatGPT, Gemini, Perplexity or Google AI Overviews citation/mention metrics.
+
+## Data scope
+
+CROX labels estimated or heuristic keyword results; it does not invent live search volume, CPC, rankings, backlink counts or competitor traffic when those providers are not connected. A saved or approved remediation draft does not automatically change the audited site.
+
+## Phase 0 architecture notes
+
+The dashboard now has project-scoped storage and a Semrush-inspired grouped navigation. Some products are intentionally marked as roadmap shells until their data integrations exist; they do not display made-up live metrics. AI conversation tables are ready for Phase 1, but streaming/tool-calling chat is not part of Phase 0. Read [`docs/PHASE_0_ARCHITECTURE.md`](docs/PHASE_0_ARCHITECTURE.md) for the existing-code audit and suggested next module structure.
